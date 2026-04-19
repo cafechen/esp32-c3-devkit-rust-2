@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 陀螺仪 3D 可视化</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            font-family: Arial, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+        }
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+        }
+        #info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            z-index: 100;
+            min-width: 280px;
+        }
+        #info-panel h3 {
+            margin-bottom: 10px;
+            color: #00d4ff;
+        }
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+        }
+        .label {
+            color: #aaa;
+        }
+        .value {
+            color: #00ff88;
+            font-weight: bold;
+        }
+        #connect-btn {
+            background: #00d4ff;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 10px;
+            width: 100%;
+        }
+        #connect-btn:hover {
+            background: #00a8cc;
+        }
+        #connect-btn.connected {
+            background: #00ff88;
+        }
+        #status {
+            margin-top: 10px;
+            font-size: 12px;
+        }
+        .status-connected {
+            color: #00ff88;
+        }
+        .status-disconnected {
+            color: #ff6b6b;
+        }
+        #settings {
+            margin-top: 10px;
+            font-size: 12px;
+        }
+        #settings label {
+            display: block;
+            margin: 5px 0;
+        }
+        #settings input {
+            width: 60px;
+            background: #333;
+            border: 1px solid #555;
+            color: #fff;
+            padding: 2px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="canvas-container"></div>
+        <div id="info-panel">
+            <h3>ESP32 陀螺仪可视化</h3>
+            <button id="connect-btn">连接设备</button>
+            <div id="status" class="status-disconnected">未连接</div>
+            <div class="data-row">
+                <span class="label">湿度:</span>
+                <span class="value" id="humidity">--</span>
+            </div>
+            <div class="data-row">
+                <span class="label">加速度 (ax, ay, az):</span>
+                <span class="value" id="accel">--, --, --</span>
+            </div>
+            <div class="data-row">
+                <span class="label">陀螺仪 (gx, gy, gz):</span>
+                <span class="value" id="gyro">--, --, --</span>
+            </div>
+            <div id="settings">
+                <label>
+                    灵敏度:
+                    <input type="number" id="sensitivity" value="1.0" step="0.1" min="0.1" max="5">
+                </label>
+                <label>
+                    滤波系数:
+                    <input type="number" id="alpha" value="0.1" step="0.05" min="0" max="1">
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Three.js 场景设置
+        let scene, camera, renderer, cube;
+        let rotationX = 0, rotationY = 0, rotationZ = 0;
+        let sensitivity = 1.0;
+        let alpha = 0.1; // 低通滤波系数
+
+        // 数据存储
+        let currentData = {
+            humidity: 0,
+            ax: 0, ay: 0, az: 0,
+            gx: 0, gy: 0, gz: 0
+        };
+
+        // ICM42670 转换系数 (±16g, ±2000dps 16位输出)
+        const ACCEL_SCALE = 16.0 / 32768.0;      // g per LSB
+        const GYRO_SCALE = (2000.0 / 32768.0) * (Math.PI / 180);  // radians/sec per LSB
+
+        function initThree() {
+            const container = document.getElementById('canvas-container');
+
+            // 创建场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x222244);
+
+            // 创建相机
+            camera = new THREE.PerspectiveCamera(
+                75,
+                window.innerWidth / window.innerHeight,
+                0.1,
+                1000
+            );
+            camera.position.z = 6;
+            camera.position.y = 0;
+
+            // 创建渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // 添加环境光
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            // 添加方向光
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 5, 5);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+
+            // 创建长方形六边形 (类似电路板形状)
+            cube = new THREE.Group();
+
+            // 使用BoxGeometry创建扁平长方形，稍微收窄两端形成六边形轮廓
+            const pcbGeometry = new THREE.BoxGeometry(3.0, 5.0, 0.3);
+            const pcbMaterial = new THREE.MeshPhongMaterial({
+                color: 0x008833,  // 绿色阻焊漆颜色
+                shininess: 60
+            });
+            const pcb = new THREE.Mesh(pcbGeometry, pcbMaterial);
+            pcb.castShadow = true;
+            cube.add(pcb);
+
+            // 添加白色边框线
+            const edges = new THREE.EdgesGeometry(pcbGeometry);
+            const line = new THREE.LineSegments(edges, new THREE.Color(0xffffff));
+            pcb.add(line);
+
+            // 添加四个圆角示意 - 小圆柱代表圆角
+            const cornerMat = new THREE.MeshPhongMaterial({ color: 0x006622 });
+            const cornerGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.4, 8);
+            // 四个角添加小圆角
+            const corners = [
+                [ 1.3,  2.2, 0],
+                [-1.3,  2.2, 0],
+                [ 1.3, -2.2, 0],
+                [-1.3, -2.2, 0]
+            ];
+            corners.forEach(pos => {
+                const corner = new THREE.Mesh(cornerGeo, cornerMat);
+                corner.position.set(pos[0], pos[1], pos[2]);
+                corner.rotation.z = Math.PI/2;
+                cube.add(corner);
+            });
+
+            scene.add(cube);
+
+            // 添加坐标轴辅助
+            const axesHelper = new THREE.AxesHelper(3);
+            scene.add(axesHelper);
+
+            // 添加网格底板
+            const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x333333);
+            scene.add(gridHelper);
+
+            // 窗口大小调整
+            window.addEventListener('resize', onWindowResize);
+
+            animate();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // 使用陀螺仪数据更新旋转角度
+            // 转换原始ADC值 -> 弧度/帧 (采样率约20Hz = 50ms/帧)
+            if (currentData.gx !== undefined) {
+                // 转换单位: 原始值 -> 弧度/帧
+                const gx_rad = currentData.gx * GYRO_SCALE * 0.05;  // 0.05 = 50ms
+                const gy_rad = currentData.gy * GYRO_SCALE * 0.05;
+                const gz_rad = currentData.gz * GYRO_SCALE * 0.05;
+
+                // 使用低通滤波平滑数据，累积旋转
+                rotationX += gx_rad * sensitivity * alpha;
+                rotationY += gy_rad * sensitivity * alpha;
+                rotationZ += gz_rad * sensitivity * alpha;
+
+                // 设置模型旋转
+                // 注意：这里根据传感器坐标系调整映射关系
+                cube.rotation.x = rotationX;
+                cube.rotation.y = rotationZ;  // 交换Y/Z以匹配常见传感器方向
+                cube.rotation.z = rotationY;
+            }
+
+            // 也可以使用加速度计来校正倾斜角度
+            if (currentData.ax !== undefined && currentData.ay !== undefined && currentData.az !== undefined) {
+                // 转换原始ADC值 -> g单位
+                const ax_g = currentData.ax * ACCEL_SCALE;
+                const ay_g = currentData.ay * ACCEL_SCALE;
+                const az_g = currentData.az * ACCEL_SCALE;
+
+                // 当静止时，加速度计给出重力方向，可以用来校正倾斜
+                // 这里只做简单的互补滤波示例
+                const tiltX = Math.atan2(ay_g, Math.sqrt(ax_g * ax_g + az_g * az_g));
+                const tiltY = Math.atan2(-ax_g, Math.sqrt(ay_g * ay_g + az_g * az_g));
+
+                // 只有在小角速度时才用加速度计校正
+                const gx_rad = currentData.gx * GYRO_SCALE;
+                const gy_rad = currentData.gy * GYRO_SCALE;
+                if (Math.abs(gx_rad) < 0.1 && Math.abs(gy_rad) < 0.1) {
+                    rotationX = rotationX * (1 - 0.01) + tiltX * 0.01;
+                    rotationY = rotationY * (1 - 0.01) + tiltY * 0.01;
+                }
+            }
+
+            // 根据湿度改变模型大小以示反馈
+            const normalizedHumidity = Math.max(0, Math.min(1, currentData.humidity / 100));
+            const scale = 1 + normalizedHumidity * 0.3;
+            cube.scale.set(scale, scale, scale);
+
+            renderer.render(scene, camera);
+        }
+
+        // Web Serial 相关
+        let port = null;
+        let reader = null;
+        let connected = false;
+
+        async function connect() {
+            try {
+                // 请求串口
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 115200 });
+
+                connected = true;
+                updateUI();
+                readLoop();
+            } catch (err) {
+                console.error('连接失败:', err);
+                document.getElementById('status').textContent = '连接失败: ' + err.message;
+            }
+        }
+
+        async function disconnect() {
+            if (reader) {
+                await reader.cancel();
+                reader = null;
+            }
+            if (port) {
+                await port.close();
+                port = null;
+            }
+            connected = false;
+            updateUI();
+        }
+
+        async function readLoop() {
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (port.readable) {
+                reader = port.readable.getReader();
+                try {
+                    while (true) {
+                        const { value, done } = await reader.read();
+                        if (done) {
+                            break;
+                        }
+                        buffer += decoder.decode(value, { stream: true });
+
+                        // 按行处理
+                        let lines = buffer.split('\n');
+                        buffer = lines.pop();
+
+                        for (const line of lines) {
+                            parseData(line.trim());
+                        }
+                    }
+                } catch (err) {
+                    console.error('读取错误:', err);
+                    document.getElementById('status').textContent = '读取错误: ' + err.message;
+                } finally {
+                    reader.releaseLock();
+                }
+            }
+            connected = false;
+            updateUI();
+        }
+
+        function parseData(line) {
+            if (!line) return;
+
+            // 尝试解析JSON格式 (你的Arduino输出格式)
+            if (line.startsWith('{') && line.endsWith('}')) {
+                try {
+                    const data = JSON.parse(line);
+                    if (data.humidity !== undefined) currentData.humidity = data.humidity;
+                    if (data.ax !== undefined) currentData.ax = data.ax;
+                    if (data.ay !== undefined) currentData.ay = data.ay;
+                    if (data.az !== undefined) currentData.az = data.az;
+                    if (data.gx !== undefined) currentData.gx = data.gx;
+                    if (data.gy !== undefined) currentData.gy = data.gy;
+                    if (data.gz !== undefined) currentData.gz = data.gz;
+
+                    // 更新显示
+                    updateDisplay();
+                    return;
+                } catch (e) {
+                    // JSON解析失败，尝试CSV
+                }
+            }
+
+            // 备选: 简单CSV格式 humidity,ax,ay,az,gx,gy,gz
+            const parts = line.split(',').map(p => parseFloat(p));
+            if (parts.length === 7 && parts.every(p => !isNaN(p))) {
+                currentData.humidity = parts[0];
+                currentData.ax = parts[1];
+                currentData.ay = parts[2];
+                currentData.az = parts[3];
+                currentData.gx = parts[4];
+                currentData.gy = parts[5];
+                currentData.gz = parts[6];
+                updateDisplay();
+            }
+        }
+
+        function updateDisplay() {
+            document.getElementById('humidity').textContent = currentData.humidity.toFixed(1) + '%';
+            document.getElementById('accel').textContent =
+                currentData.ax.toFixed(2) + ', ' +
+                currentData.ay.toFixed(2) + ', ' +
+                currentData.az.toFixed(2);
+            document.getElementById('gyro').textContent =
+                currentData.gx.toFixed(2) + ', ' +
+                currentData.gy.toFixed(2) + ', ' +
+                currentData.gz.toFixed(2);
+        }
+
+        function updateUI() {
+            const btn = document.getElementById('connect-btn');
+            const status = document.getElementById('status');
+
+            if (connected) {
+                btn.textContent = '断开连接';
+                btn.classList.add('connected');
+                status.textContent = '已连接';
+                status.className = 'status-connected';
+            } else {
+                btn.textContent = '连接设备';
+                btn.classList.remove('connected');
+                status.textContent = '未连接';
+                status.className = 'status-disconnected';
+            }
+        }
+
+        // 事件绑定
+        document.getElementById('connect-btn').addEventListener('click', () => {
+            if (connected) {
+                disconnect();
+            } else {
+                connect();
+            }
+        });
+
+        document.getElementById('sensitivity').addEventListener('input', (e) => {
+            sensitivity = parseFloat(e.target.value);
+        });
+
+        document.getElementById('alpha').addEventListener('input', (e) => {
+            alpha = parseFloat(e.target.value);
+        });
+
+        // 等待DOM加载完成再初始化
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                initThree();
+                updateDisplay();
+                console.log('Three.js initialized');
+            });
+        } else {
+            initThree();
+            updateDisplay();
+            console.log('Three.js initialized');
+        }
+    </script>
+</body>
+</html>
