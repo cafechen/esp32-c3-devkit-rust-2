@@ -197,7 +197,6 @@
       time: 0,
       temp: 0,
       humidity: 0,
-
       ax: 0, ay: 0, az: 0,
       gx: 0, gy: 0, gz: 0,
       acc_mag: 0,
@@ -205,7 +204,6 @@
       roll: 0,
       pitch: 0,
       yaw: 0,
-
       gait_state: 'IDLE',
       gait_state_cn: '静止',
       steps: 0,
@@ -322,20 +320,13 @@
       if (data.steps !== undefined) state.steps = Number(data.steps);
 
       if (data.gait_state !== undefined) {
-        const prev = state.gait_state;
         state.gait_state = String(data.gait_state);
         state.gait_state_cn = gaitStateToCN(state.gait_state);
-
-        if (prev !== state.gait_state) {
-          if (state.gait_state === 'HEEL_STRIKE') flashEvent('落脚');
-          if (state.gait_state === 'LIFT_OFF') flashEvent('抬脚');
-          if (state.gait_state === 'SWING') flashEvent('摆动');
-        }
       }
 
       updateInfo();
     }
-
+    
     function tryParseObject(str) {
       try {
         const data = JSON.parse(str);
@@ -400,12 +391,28 @@
       }
     }
 
+    function parseLine(line) {
+      try {
+        const data = JSON.parse(line);
+        applyData(data);
+      } catch (e) {
+        console.log('JSON parse failed:', line);
+      }
+    }
+
     function handleNotify(event) {
       const value = event.target.value;
       const text = new TextDecoder().decode(value);
 
       bleBuffer += text;
-      processBleBuffer();
+
+      let idx;
+      while ((idx = bleBuffer.indexOf('\n')) >= 0) {
+        const line = bleBuffer.slice(0, idx).trim();
+        bleBuffer = bleBuffer.slice(idx + 1);
+
+        if (line) parseLine(line);
+      }
     }
 
     function onDisconnected() {

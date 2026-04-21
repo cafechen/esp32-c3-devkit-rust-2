@@ -360,7 +360,7 @@ void loop() {
     "\"acc_mag\":%.3f,\"gyro_mag\":%.3f,"
     "\"roll\":%.3f,\"pitch\":%.3f,\"yaw\":%.3f,"
     "\"gyro_bias_x\":%.3f,\"gyro_bias_y\":%.3f,\"gyro_bias_z\":%.3f,"
-    "\"gait_state\":\"%s\",\"steps\":%d}",
+    "\"gait_state\":\"%s\",\"steps\":%d}\n",
     now / 1000.0,
     temp, hum,
     filt_ax, filt_ay, filt_az,
