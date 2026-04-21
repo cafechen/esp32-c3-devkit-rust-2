@@ -88,7 +88,6 @@
       <div class="row"><div class="label">温度</div><div class="value" id="temp">--</div></div>
       <div class="row"><div class="label">湿度</div><div class="value" id="humidity">--</div></div>
 
-      <div class="row"><div class="label">加速度</div><div class="value" id="accel">--</div></div>
       <div class="row"><div class="label">陀螺仪</div><div class="value" id="gyro">--</div></div>
     </div>
   </div>
@@ -120,14 +119,12 @@
     const timeEl = document.getElementById('time');
     const tempEl = document.getElementById('temp');
     const humidityEl = document.getElementById('humidity');
-    const accelEl = document.getElementById('accel');
     const gyroEl = document.getElementById('gyro');
 
     function updateInfo() {
       timeEl.textContent = Number.isFinite(state.time) ? state.time.toFixed(3) : '--';
       tempEl.textContent = Number.isFinite(state.temp) ? state.temp.toFixed(2) + ' °C' : '--';
       humidityEl.textContent = Number.isFinite(state.humidity) ? state.humidity.toFixed(1) + ' %' : '--';
-      accelEl.textContent = `${state.ax.toFixed(1)}, ${state.ay.toFixed(1)}, ${state.az.toFixed(1)}`;
       gyroEl.textContent = `${state.gx.toFixed(1)}, ${state.gy.toFixed(1)}, ${state.gz.toFixed(1)}`;
       statusEl.textContent = state.connected ? '已连接，正在接收 BLE 数据' : '未连接';
       connectBtn.textContent = state.connected ? '断开连接' : '连接 BLE 设备';
@@ -217,163 +214,127 @@
       }
     });
 
-    // ===== 简单 2D 姿态板子 =====
+    // ===== Three.js 3D 立体陀螺仪 =====
     const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
 
-    function resize() {
-      canvas.width = window.innerWidth * devicePixelRatio;
-      canvas.height = window.innerHeight * devicePixelRatio;
-      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    }
-    window.addEventListener('resize', resize);
-    resize();
+    // 创建 Three.js 场景
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111827);
 
-    function drawGyro(cx, cy, size, rx, ry, rz) {
-      ctx.save();
-      ctx.translate(cx, cy);
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 8;
+    camera.position.y = 0;
 
-      // 伪3D投影缩放
-      const sx = 1 - ry * 0.3;
-      const sy = 1 - rx * 0.3;
-      ctx.scale(sx, sy);
-      ctx.rotate(rz * 0.5);
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-      // 外圆环
-      ctx.beginPath();
-      ctx.arc(0, 0, size, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.6)';
-      ctx.lineWidth = 4;
-      ctx.stroke();
+    // 光照
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5, 5, 5);
+    scene.add(dirLight);
 
-      // 画三个正交轴 - 陀螺转轴样式
-      const axisLen = size * 0.85;
+    // 创建坐标轴组
+    const gyroGroup = new THREE.Group();
+    scene.add(gyroGroup);
 
-      // X轴 (红色 - 前后俯仰)
-      ctx.beginPath();
-      ctx.moveTo(-axisLen, 0);
-      ctx.lineTo(axisLen, 0);
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 5;
-      ctx.stroke();
-      // X轴箭头
-      ctx.beginPath();
-      ctx.moveTo(axisLen, 0);
-      ctx.lineTo(axisLen - 18, -12);
-      ctx.lineTo(axisLen - 18, 12);
-      ctx.closePath();
-      ctx.fillStyle = '#ef4444';
-      ctx.fill();
-      // X轴标签
-      ctx.fillStyle = '#ef4444';
-      ctx.font = 'bold 18px Arial';
-      ctx.fillText('X', axisLen + 10, 6);
+    const axisLen = 4;
+    const axisRadius = 0.08;
 
-      // Y轴 (绿色 - 左右横滚)
-      ctx.beginPath();
-      ctx.moveTo(0, -axisLen);
-      ctx.lineTo(0, axisLen);
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 5;
-      ctx.stroke();
-      // Y轴箭头
-      ctx.beginPath();
-      ctx.moveTo(0, -axisLen);
-      ctx.lineTo(-12, -axisLen + 18);
-      ctx.lineTo(12, -axisLen + 18);
-      ctx.closePath();
-      ctx.fillStyle = '#22c55e';
-      ctx.fill();
-      // Y轴标签
-      ctx.fillStyle = '#22c55e';
-      ctx.fillText('Y', 8, -axisLen - 5);
+    // X轴 - 红色 (前后俯仰)
+    const xMat = new THREE.MeshPhongMaterial({ color: 0xef4444 });
+    const xGeo = new THREE.CylinderGeometry(axisRadius, axisRadius, axisLen, 8);
+    const xAxis = new THREE.Mesh(xGeo, xMat);
+    xAxis.rotation.z = Math.PI / 2;
+    gyroGroup.add(xAxis);
+    // X轴箭头
+    const xArrowGeo = new THREE.ConeGeometry(0.2, 0.5, 8);
+    const xArrow = new THREE.Mesh(xArrowGeo, xMat);
+    xArrow.position.set(axisLen / 2 + 0.25, 0, 0);
+    xArrow.rotation.z = -Math.PI / 2;
+    gyroGroup.add(xArrow);
 
-      // Z轴 (蓝色 - 偏航旋转)
-      // 透视效果画Z轴
-      const zScale = 0.3;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(axisLen * zScale, axisLen * zScale);
-      ctx.strokeStyle = '#3b82f6';
-      ctx.lineWidth = 5;
-      ctx.stroke();
-      // Z轴箭头
-      const zx = axisLen * zScale;
-      const zy = axisLen * zScale;
-      ctx.beginPath();
-      ctx.moveTo(zx, zy);
-      ctx.lineTo(zx - 12, zy - 8);
-      ctx.lineTo(zx - 8, zy - 12);
-      ctx.closePath();
-      ctx.fillStyle = '#3b82f6';
-      ctx.fill();
-      // Z轴标签
-      ctx.fillStyle = '#3b82f6';
-      ctx.fillText('Z', zx + 10, zy + 5);
+    // Y轴 - 绿色 (左右横滚)
+    const yMat = new THREE.MeshPhongMaterial({ color: 0x22c55e });
+    const yGeo = new THREE.CylinderGeometry(axisRadius, axisRadius, axisLen, 8);
+    const yAxis = new THREE.Mesh(yGeo, yMat);
+    gyroGroup.add(yAxis);
+    // Y轴箭头
+    const yArrow = new THREE.Mesh(xArrowGeo, yMat);
+    yArrow.position.set(0, axisLen / 2 + 0.25, 0);
+    gyroGroup.add(yArrow);
 
-      // 中心原点
-      ctx.beginPath();
-      ctx.arc(0, 0, 10, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-      ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 3;
-      ctx.stroke();
+    // Z轴 - 蓝色 (偏航旋转)
+    const zMat = new THREE.MeshPhongMaterial({ color: 0x3b82f6 });
+    const zGeo = new THREE.CylinderGeometry(axisRadius, axisRadius, axisLen, 8);
+    const zAxis = new THREE.Mesh(zGeo, zMat);
+    zAxis.rotation.x = Math.PI / 2;
+    gyroGroup.add(zAxis);
+    // Z轴箭头
+    const zArrow = new THREE.Mesh(xArrowGeo, zMat);
+    zArrow.position.set(0, 0, axisLen / 2 + 0.25);
+    zArrow.rotation.x = Math.PI / 2;
+    gyroGroup.add(zArrow);
 
-      // 内环 - 增加立体感
-      ctx.beginPath();
-      ctx.arc(0, 0, size * 0.55, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(251, 191, 36, 0.5)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
+    // 中心球体
+    const centerGeo = new THREE.SphereGeometry(0.25, 16, 16);
+    const centerMat = new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0xfbbf24, emissiveIntensity: 0.5 });
+    const center = new THREE.Mesh(centerGeo, centerMat);
+    gyroGroup.add(center);
 
-      ctx.restore();
-    }
+    // 三个正交圆环
+    const ringMat = new THREE.MeshPhongMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+    const ringGeo = new THREE.TorusGeometry(axisLen * 0.65, 0.05, 8, 48);
 
-    function animate(ts) {
+    const ringX = new THREE.Mesh(ringGeo, ringMat);
+    ringX.rotation.y = Math.PI / 2;
+    gyroGroup.add(ringX);
+
+    const ringY = new THREE.Mesh(ringGeo, ringMat);
+    ringY.rotation.x = Math.PI / 2;
+    gyroGroup.add(ringY);
+
+    const ringZ = new THREE.Mesh(ringGeo, ringMat);
+    gyroGroup.add(ringZ);
+
+    // 窗口调整
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // 动画循环
+    function animate3D(ts) {
       if (state.lastTs == null) state.lastTs = ts;
       const dt = Math.max(0.016, (ts - state.lastTs) / 1000);
       state.lastTs = ts;
 
-      // 粗略姿态演示
-      state.rotX += state.gx * 0.0005;
-      state.rotY += state.gy * 0.0005;
-      state.rotZ += state.gz * 0.0005;
+      // 陀螺仪积分计算旋转
+      state.rotX += state.gx * 0.0008;
+      state.rotY += state.gy * 0.0008;
+      state.rotZ += state.gz * 0.0008;
 
-      // 加一点回正，避免无限漂移
-      state.rotX *= 0.995;
-      state.rotY *= 0.995;
-      state.rotZ *= 0.995;
+      // 轻微回正
+      state.rotX *= 0.998;
+      state.rotY *= 0.998;
+      state.rotZ *= 0.998;
 
-      const w = window.innerWidth;
-      const h = window.innerHeight;
+      // 真正的 3D 旋转
+      gyroGroup.rotation.x = state.rotX;
+      gyroGroup.rotation.y = state.rotZ;
+      gyroGroup.rotation.z = state.rotY;
 
-      ctx.clearRect(0, 0, w, h);
-
-      // 背景网格
-      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-      ctx.lineWidth = 1;
-      for (let x = 0; x < w; x += 40) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, h);
-        ctx.stroke();
-      }
-      for (let y = 0; y < h; y += 40) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.stroke();
-      }
-
-      // 陀螺仪三轴
-      drawGyro(w * 0.65, h * 0.5, 150, state.rotX, state.rotY, state.rotZ);
-
-      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate3D);
     }
 
     updateInfo();
-    requestAnimationFrame(animate);
+    requestAnimationFrame(animate3D);
   </script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </body>
 </html>
