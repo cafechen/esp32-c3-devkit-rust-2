@@ -92,6 +92,8 @@
     </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
   <script>
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const TX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
@@ -223,6 +225,7 @@
 
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.z = 8;
+    camera.position.x = 1.5;  // 往右挪，避开左侧面板
     camera.position.y = 0;
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -334,7 +337,5 @@
     updateInfo();
     requestAnimationFrame(animate3D);
   </script>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </body>
 </html>
