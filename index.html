@@ -15,13 +15,23 @@
       font-family: Arial, sans-serif;
     }
     #app { width: 100vw; height: 100vh; position: relative; }
-    #threeCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-    #overlay { position: absolute; inset: 0; pointer-events: none; }
+    #threeCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
     #panel {
       position: absolute;
       left: 16px;
       top: 16px;
-      width: 380px;
+      width: 390px;
       background: rgba(0,0,0,0.60);
       border-radius: 16px;
       padding: 16px;
@@ -29,19 +39,39 @@
       pointer-events: auto;
       z-index: 10;
     }
-    #panel h2 { color: #38bdf8; margin-bottom: 12px; font-size: 20px; }
-    #connectBtn {
-      width: 100%;
-      padding: 12px;
+    #panel h2 {
+      color: #38bdf8;
+      margin-bottom: 12px;
+      font-size: 20px;
+    }
+    #connectBtn, .smallBtn {
       border: 0;
       border-radius: 10px;
       font-weight: bold;
-      font-size: 16px;
+      font-size: 15px;
+    }
+    #connectBtn {
+      width: 100%;
+      padding: 12px;
       background: #22c55e;
       color: #08110b;
       margin-bottom: 10px;
     }
-    #connectBtn.disconnect { background: #f59e0b; color: #1f1300; }
+    #connectBtn.disconnect {
+      background: #f59e0b;
+      color: #1f1300;
+    }
+    .btnRow {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .smallBtn {
+      flex: 1;
+      padding: 10px;
+      background: #334155;
+      color: white;
+    }
     #status {
       font-size: 13px;
       color: #cbd5e1;
@@ -61,6 +91,7 @@
     .lift { background: #2563eb; color: white; }
     .swing { background: #16a34a; color: white; }
     .strike { background: #dc2626; color: white; }
+
     .row {
       display: flex;
       justify-content: space-between;
@@ -75,6 +106,7 @@
       word-break: break-word;
       max-width: 220px;
     }
+
     #eventFlash {
       position: absolute;
       right: 20px;
@@ -91,7 +123,11 @@
       pointer-events: none;
       z-index: 20;
     }
-    #eventFlash.show { opacity: 1; transform: scale(1); }
+    #eventFlash.show {
+      opacity: 1;
+      transform: scale(1);
+    }
+
     #chartWrap {
       position: absolute;
       left: 16px;
@@ -103,16 +139,35 @@
       padding: 10px;
       pointer-events: none;
     }
-    #chartCanvas { width: 100%; height: 100%; display: block; }
+    #chartCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.45;
+    }
   </style>
 </head>
 <body>
   <div id="app">
     <canvas id="threeCanvas"></canvas>
+
     <div id="overlay">
       <div id="panel">
         <h2>ESP32 步态识别</h2>
+
         <button id="connectBtn">连接 BLE 设备</button>
+
+        <div class="btnRow">
+          <button id="startLogBtn" class="smallBtn">开始记录</button>
+          <button id="stopLogBtn" class="smallBtn">停止记录</button>
+          <button id="downloadLogBtn" class="smallBtn">导出日志</button>
+        </div>
+
         <div id="status">未连接</div>
         <div id="gaitBadge" class="badge idle">静止</div>
 
@@ -126,6 +181,14 @@
         <div class="row"><div class="label">角速度模长</div><div class="value" id="gyroMag">--</div></div>
         <div class="row"><div class="label">俯仰 / 横滚</div><div class="value" id="angles">--</div></div>
         <div class="row"><div class="label">最近原始包</div><div class="value" id="rawText">--</div></div>
+
+        <div class="hint">
+          规则法说明：<br />
+          静止：角速度低且加速度接近 1g<br />
+          抬脚：角速度升高<br />
+          摆动：持续高角速度<br />
+          落脚：出现冲击峰
+        </div>
       </div>
 
       <div id="eventFlash">落脚</div>
@@ -147,11 +210,15 @@
       server: null,
       service: null,
       txChar: null,
-      time: 0, temp: 0, humidity: 0,
+      time: 0,
+      temp: 0,
+      humidity: 0,
       ax: 0, ay: 0, az: 0,
       gx: 0, gy: 0, gz: 0,
-      acc_mag: 0, gyro_mag: 0,
-      roll: 0, pitch: 0,
+      acc_mag: 0,
+      gyro_mag: 0,
+      roll: 0,
+      pitch: 0,
       gait_state: 'IDLE',
       gait_state_cn: '静止',
       steps: 0,
@@ -161,8 +228,14 @@
     };
 
     let bleBuffer = '';
+    let logRecords = [];
+    let logging = false;
 
     const connectBtn = document.getElementById('connectBtn');
+    const startLogBtn = document.getElementById('startLogBtn');
+    const stopLogBtn = document.getElementById('stopLogBtn');
+    const downloadLogBtn = document.getElementById('downloadLogBtn');
+
     const statusEl = document.getElementById('status');
     const gaitBadge = document.getElementById('gaitBadge');
     const stepsEl = document.getElementById('steps');
@@ -177,7 +250,9 @@
     const rawTextEl = document.getElementById('rawText');
     const eventFlash = document.getElementById('eventFlash');
 
-    function deg(rad) { return rad * 180 / Math.PI; }
+    function deg(rad) {
+      return rad * 180 / Math.PI;
+    }
 
     function gaitStateToCN(s) {
       switch (s) {
@@ -208,7 +283,10 @@
     }
 
     function updateInfo() {
-      statusEl.textContent = state.connected ? '已连接，正在接收 BLE 数据' : '未连接';
+      statusEl.textContent = state.connected
+        ? `已连接，正在接收 BLE 数据${logging ? '（记录中）' : ''}`
+        : '未连接';
+
       connectBtn.textContent = state.connected ? '断开连接' : '连接 BLE 设备';
       connectBtn.className = state.connected ? 'disconnect' : '';
       updateBadge();
@@ -269,6 +347,13 @@
         }
       }
 
+      if (logging) {
+        logRecords.push({
+          ts: Date.now(),
+          ...data
+        });
+      }
+
       updateInfo();
     }
 
@@ -276,15 +361,15 @@
       try {
         const data = JSON.parse(line);
         applyData(data);
-        return true;
       } catch (e) {
-        return false;
+        console.log('JSON parse failed:', line);
       }
     }
 
     function handleNotify(event) {
       const text = new TextDecoder().decode(event.target.value);
-      rawTextEl.textContent = text.slice(0, 80).replace(/\n/g, '\\n');
+      rawTextEl.textContent = text.slice(0, 120).replace(/\n/g, '\\n');
+
       bleBuffer += text;
 
       let idx;
@@ -311,6 +396,11 @@
     }
 
     async function connectBLE() {
+      if (!navigator.bluetooth) {
+        alert('当前浏览器不支持 Web Bluetooth。请使用 Android Chrome，并通过 HTTPS 打开页面。');
+        return;
+      }
+
       state.device = await navigator.bluetooth.requestDevice({
         filters: [{ services: [SERVICE_UUID] }],
         optionalServices: [SERVICE_UUID]
@@ -351,6 +441,30 @@
         if (err?.message?.includes('User cancelled')) return;
         alert('连接失败: ' + err.message);
       }
+    });
+
+    startLogBtn.addEventListener('click', () => {
+      logRecords = [];
+      logging = true;
+      updateInfo();
+      alert('开始记录');
+    });
+
+    stopLogBtn.addEventListener('click', () => {
+      logging = false;
+      updateInfo();
+      alert(`停止记录，共 ${logRecords.length} 条`);
+    });
+
+    downloadLogBtn.addEventListener('click', () => {
+      const content = logRecords.map(x => JSON.stringify(x)).join('\n');
+      const blob = new Blob([content], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `imu_log_${Date.now()}.jsonl`;
+      a.click();
+      URL.revokeObjectURL(url);
     });
 
     const threeCanvas = document.getElementById('threeCanvas');
