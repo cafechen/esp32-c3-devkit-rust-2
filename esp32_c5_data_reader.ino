@@ -8,8 +8,7 @@
 #define I2C_SDA 7
 #define I2C_SCL 8
 
-// 建议提高到 50Hz
-const int SAMPLE_INTERVAL = 20;   // ms, 50Hz
+const int SAMPLE_INTERVAL = 20;   // 50Hz
 
 Adafruit_SHTC3 shtc3;
 ICM42670 icm(Wire, 0);  // 0x68
@@ -25,19 +24,20 @@ static NimBLECharacteristic* rxCharacteristic = nullptr;
 #define CHARACTERISTIC_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
-// ====== IMU换算系数（按当前配置） ======
-const float ACC_G_PER_LSB = 16.0f / 32768.0f;      // ±16g
-const float GYRO_DPS_PER_LSB = 2000.0f / 32768.0f; // ±2000 dps
+// ====== IMU换算系数 ======
+const float ACC_G_PER_LSB = 16.0f / 32768.0f;        // ±16g
+const float GYRO_DPS_PER_LSB = 2000.0f / 32768.0f;   // ±2000 dps
 
 // ====== 步态状态机 ======
 enum GaitState {
-  STANCE = 0,
-  LIFT_OFF = 1,
-  SWING = 2,
-  HEEL_STRIKE = 3
+  IDLE = 0,
+  STANCE = 1,
+  LIFT_OFF = 2,
+  SWING = 3,
+  HEEL_STRIKE = 4
 };
 
-GaitState gaitState = STANCE;
+GaitState gaitState = IDLE;
 unsigned long stateEnterMs = 0;
 unsigned long lastHeelStrikeMs = 0;
 int stepCount = 0;
@@ -52,12 +52,12 @@ float filt_gx = 0, filt_gy = 0, filt_gz = 0;
 float acc_mag = 0;
 float gyro_mag = 0;
 
-// 姿态角（重点看 pitch）
+// 姿态角
 float roll = 0;
 float pitch = 0;
 float yaw = 0;
 
-// 校准偏置
+// 陀螺仪偏置
 float gyro_bias_x = 0;
 float gyro_bias_y = 0;
 float gyro_bias_z = 0;
@@ -68,7 +68,12 @@ const float LPF_ALPHA_ACC = 0.25f;
 const float LPF_ALPHA_GYRO = 0.25f;
 const float COMPLEMENTARY_ALPHA = 0.98f;
 
-// 步态阈值：需要现场再调
+// Idle 判断
+const float GYRO_IDLE_THRESHOLD = 8.0f;   // dps
+const float ACC_IDLE_LOW = 0.93f;         // g
+const float ACC_IDLE_HIGH = 1.07f;        // g
+
+// 步态阈值
 const float GYRO_LIFT_THRESHOLD = 35.0f;    // dps
 const float GYRO_SWING_THRESHOLD = 55.0f;   // dps
 const float ACC_STRIKE_THRESHOLD = 1.25f;   // g
@@ -98,6 +103,7 @@ class RxCallbacks : public NimBLECharacteristicCallbacks {
 
 const char* gaitStateName(GaitState s) {
   switch (s) {
+    case IDLE: return "IDLE";
     case STANCE: return "STANCE";
     case LIFT_OFF: return "LIFT_OFF";
     case SWING: return "SWING";
@@ -163,6 +169,70 @@ void calibrateGyroBias() {
   Serial.print("gyro_bias_z="); Serial.println(gyro_bias_z, 4);
 }
 
+void updateGaitState(unsigned long nowMs) {
+  bool isIdle = (gyro_mag < GYRO_IDLE_THRESHOLD &&
+                 acc_mag > ACC_IDLE_LOW &&
+                 acc_mag < ACC_IDLE_HIGH);
+
+  switch (gaitState) {
+    case IDLE:
+      if (!isIdle && gyro_mag > GYRO_LIFT_THRESHOLD) {
+        gaitState = LIFT_OFF;
+        stateEnterMs = nowMs;
+      } else if (!isIdle) {
+        gaitState = STANCE;
+        stateEnterMs = nowMs;
+      }
+      break;
+
+    case STANCE:
+      if (isIdle) {
+        gaitState = IDLE;
+        stateEnterMs = nowMs;
+      } else if (gyro_mag > GYRO_LIFT_THRESHOLD) {
+        gaitState = LIFT_OFF;
+        stateEnterMs = nowMs;
+      }
+      break;
+
+    case LIFT_OFF:
+      if (gyro_mag > GYRO_SWING_THRESHOLD) {
+        gaitState = SWING;
+        stateEnterMs = nowMs;
+      } else if (isIdle) {
+        gaitState = IDLE;
+        stateEnterMs = nowMs;
+      } else if (gyro_mag < GYRO_STANCE_THRESHOLD) {
+        gaitState = STANCE;
+        stateEnterMs = nowMs;
+      }
+      break;
+
+    case SWING:
+      if (acc_mag > ACC_STRIKE_THRESHOLD &&
+          (nowMs - lastHeelStrikeMs) > MIN_STEP_INTERVAL_MS) {
+        gaitState = HEEL_STRIKE;
+        stateEnterMs = nowMs;
+        lastHeelStrikeMs = nowMs;
+        stepCount++;
+      }
+      break;
+
+    case HEEL_STRIKE:
+      if (isIdle) {
+        gaitState = IDLE;
+        stateEnterMs = nowMs;
+      } else if (gyro_mag < GYRO_STANCE_THRESHOLD) {
+        gaitState = STANCE;
+        stateEnterMs = nowMs;
+      } else if (nowMs - stateEnterMs > 120) {
+        gaitState = STANCE;
+        stateEnterMs = nowMs;
+      }
+      break;
+  }
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -191,54 +261,12 @@ void setup() {
   }
 
   setupBLE();
-
   stateEnterMs = millis();
 
   Serial.print("sht_ok=");
   Serial.println(sht_ok ? "true" : "false");
   Serial.print("imu_ok=");
   Serial.println(imu_ok ? "true" : "false");
-}
-
-void updateGaitState(unsigned long nowMs) {
-  switch (gaitState) {
-    case STANCE:
-      if (gyro_mag > GYRO_LIFT_THRESHOLD) {
-        gaitState = LIFT_OFF;
-        stateEnterMs = nowMs;
-      }
-      break;
-
-    case LIFT_OFF:
-      if (gyro_mag > GYRO_SWING_THRESHOLD) {
-        gaitState = SWING;
-        stateEnterMs = nowMs;
-      } else if (gyro_mag < GYRO_STANCE_THRESHOLD) {
-        gaitState = STANCE;
-        stateEnterMs = nowMs;
-      }
-      break;
-
-    case SWING:
-      if (acc_mag > ACC_STRIKE_THRESHOLD &&
-          (nowMs - lastHeelStrikeMs) > MIN_STEP_INTERVAL_MS) {
-        gaitState = HEEL_STRIKE;
-        stateEnterMs = nowMs;
-        lastHeelStrikeMs = nowMs;
-        stepCount++;
-      }
-      break;
-
-    case HEEL_STRIKE:
-      if (gyro_mag < GYRO_STANCE_THRESHOLD) {
-        gaitState = STANCE;
-        stateEnterMs = nowMs;
-      } else if (nowMs - stateEnterMs > 120) {
-        gaitState = STANCE;
-        stateEnterMs = nowMs;
-      }
-      break;
-  }
 }
 
 void loop() {
@@ -286,11 +314,9 @@ void loop() {
       acc_mag = sqrtf(filt_ax * filt_ax + filt_ay * filt_ay + filt_az * filt_az);
       gyro_mag = sqrtf(filt_gx * filt_gx + filt_gy * filt_gy + filt_gz * filt_gz);
 
-      // 加速度估计 roll / pitch
       float acc_roll = atan2f(filt_ay, filt_az);
       float acc_pitch = atan2f(-filt_ax, sqrtf(filt_ay * filt_ay + filt_az * filt_az));
 
-      // 互补滤波
       roll = COMPLEMENTARY_ALPHA * (roll + filt_gx * DEG_TO_RAD * dt)
            + (1.0f - COMPLEMENTARY_ALPHA) * acc_roll;
 

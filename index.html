@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ESP32 步态识别 Route A</title>
+  <title>ESP32 步态识别</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
@@ -75,10 +75,12 @@
       font-weight: bold;
       margin-bottom: 12px;
     }
+    .idle { background: #475569; color: #f8fafc; }
     .stance { background: #334155; color: #e2e8f0; }
     .lift { background: #2563eb; color: white; }
     .swing { background: #16a34a; color: white; }
     .strike { background: #dc2626; color: white; }
+
     .row {
       display: flex;
       justify-content: space-between;
@@ -139,7 +141,7 @@
         <h2>ESP32 步态识别</h2>
         <button id="connectBtn">连接 BLE 设备</button>
         <div id="status">未连接</div>
-        <div id="gaitBadge" class="badge stance">STANCE</div>
+        <div id="gaitBadge" class="badge idle">静止</div>
 
         <div class="row"><div class="label">步数</div><div class="value" id="steps">0</div></div>
         <div class="row"><div class="label">时间</div><div class="value" id="time">--</div></div>
@@ -148,15 +150,16 @@
 
         <div class="row"><div class="label">ax, ay, az</div><div class="value" id="accel">--</div></div>
         <div class="row"><div class="label">gx, gy, gz</div><div class="value" id="gyro">--</div></div>
-        <div class="row"><div class="label">acc_mag</div><div class="value" id="accMag">--</div></div>
-        <div class="row"><div class="label">gyro_mag</div><div class="value" id="gyroMag">--</div></div>
-        <div class="row"><div class="label">pitch / roll</div><div class="value" id="angles">--</div></div>
+        <div class="row"><div class="label">加速度模长</div><div class="value" id="accMag">--</div></div>
+        <div class="row"><div class="label">角速度模长</div><div class="value" id="gyroMag">--</div></div>
+        <div class="row"><div class="label">俯仰 / 横滚</div><div class="value" id="angles">--</div></div>
 
         <div class="hint">
-          步态识别：规则法<br />
-          站立 → 抬脚：角速度升高<br />
-          抬脚 → 摆动：持续高角速度<br />
-          摆动 → 落脚：加速度冲击峰
+          规则法说明：<br />
+          静止：角速度低且加速度接近 1g<br />
+          抬脚：角速度升高<br />
+          摆动：持续高角速度<br />
+          落脚：出现冲击峰
         </div>
       </div>
 
@@ -192,10 +195,10 @@
       pitch: 0,
       yaw: 0,
 
-      gait_state: 'STANCE',
+      gait_state: 'IDLE',
+      gait_state_cn: '静止',
       steps: 0,
 
-      lastGaitState: 'STANCE',
       chartAcc: [],
       chartGyro: [],
       maxPoints: 180
@@ -219,18 +222,22 @@
       return rad * 180 / Math.PI;
     }
 
-    function gaitNameCN(name) {
-      if (name === 'STANCE') return '站立';
-      if (name === 'LIFT_OFF') return '抬脚';
-      if (name === 'SWING') return '摆动';
-      if (name === 'HEEL_STRIKE') return '落脚';
-      return name;
+    function gaitStateToCN(s) {
+      switch (s) {
+        case 'IDLE': return '静止';
+        case 'STANCE': return '支撑';
+        case 'LIFT_OFF': return '抬脚';
+        case 'SWING': return '摆动';
+        case 'HEEL_STRIKE': return '落脚';
+        default: return '未知';
+      }
     }
 
     function updateBadge() {
-      gaitBadge.textContent = gaitNameCN(state.gait_state);
+      gaitBadge.textContent = state.gait_state_cn;
       gaitBadge.className = 'badge';
 
+      if (state.gait_state === 'IDLE') gaitBadge.classList.add('idle');
       if (state.gait_state === 'STANCE') gaitBadge.classList.add('stance');
       if (state.gait_state === 'LIFT_OFF') gaitBadge.classList.add('lift');
       if (state.gait_state === 'SWING') gaitBadge.classList.add('swing');
@@ -304,10 +311,12 @@
         if (data.gait_state !== undefined) {
           const prev = state.gait_state;
           state.gait_state = String(data.gait_state);
+          state.gait_state_cn = gaitStateToCN(state.gait_state);
 
           if (prev !== state.gait_state) {
             if (state.gait_state === 'HEEL_STRIKE') flashEvent('落脚');
-            if (state.gait_state === 'LIFT_OFF') flashEvent('LIFT OFF');
+            if (state.gait_state === 'LIFT_OFF') flashEvent('抬脚');
+            if (state.gait_state === 'SWING') flashEvent('摆动');
           }
         }
 
@@ -419,9 +428,9 @@
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      resizeChart();
     });
 
-    // 触控/鼠标移动视角
     let dragging = false, lx = 0, ly = 0;
     threeCanvas.addEventListener('mousedown', e => {
       dragging = true; lx = e.clientX; ly = e.clientY;
@@ -449,7 +458,7 @@
       requestAnimationFrame(animate3D);
     }
 
-    // ===== 简单曲线图 =====
+    // ===== 曲线图 =====
     const chartCanvas = document.getElementById('chartCanvas');
     const chartCtx = chartCanvas.getContext('2d');
 
@@ -459,9 +468,6 @@
       chartCanvas.height = rect.height * devicePixelRatio;
       chartCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     }
-
-    window.addEventListener('resize', resizeChart);
-    resizeChart();
 
     function drawLine(arr, color, maxVal, minVal) {
       const w = chartCanvas.clientWidth;
@@ -488,7 +494,6 @@
 
       chartCtx.clearRect(0, 0, w, h);
 
-      // 网格
       chartCtx.strokeStyle = 'rgba(255,255,255,0.08)';
       chartCtx.lineWidth = 1;
       for (let i = 1; i < 4; i++) {
@@ -499,21 +504,19 @@
         chartCtx.stroke();
       }
 
-      // acc_mag 绿色
       drawLine(state.chartAcc, '#22c55e', 2.2, 0.6);
-
-      // gyro_mag 蓝色
       drawLine(state.chartGyro, '#38bdf8', 220, 0);
 
       chartCtx.fillStyle = '#22c55e';
-      chartCtx.fillText('acc_mag', 10, 16);
+      chartCtx.fillText('加速度模长', 10, 16);
 
       chartCtx.fillStyle = '#38bdf8';
-      chartCtx.fillText('gyro_mag', 90, 16);
+      chartCtx.fillText('角速度模长', 100, 16);
 
       requestAnimationFrame(drawChart);
     }
 
+    resizeChart();
     updateInfo();
     requestAnimationFrame(animate3D);
     requestAnimationFrame(drawChart);
