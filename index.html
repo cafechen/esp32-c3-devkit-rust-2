@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ESP32 IMU BLE 可视化</title>
+  <title>ESP32 步态识别 Route A</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #111827;
+      background: #0f172a;
       color: #fff;
       font-family: Arial, sans-serif;
     }
@@ -19,38 +19,44 @@
       height: 100vh;
       position: relative;
     }
-    #canvas {
+    #threeCanvas {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
       display: block;
-      background: radial-gradient(circle at center, #1f2937 0%, #0f172a 100%);
+    }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
     }
     #panel {
       position: absolute;
       left: 16px;
       top: 16px;
-      width: 340px;
-      background: rgba(0, 0, 0, 0.58);
+      width: 360px;
+      background: rgba(0,0,0,0.58);
       border-radius: 16px;
       padding: 16px;
       backdrop-filter: blur(10px);
-      z-index: 10;
+      pointer-events: auto;
     }
     #panel h2 {
-      font-size: 20px;
-      margin-bottom: 10px;
       color: #38bdf8;
+      margin-bottom: 12px;
+      font-size: 20px;
     }
     #connectBtn {
       width: 100%;
+      padding: 12px;
       border: 0;
       border-radius: 10px;
-      padding: 12px;
+      font-weight: bold;
+      font-size: 16px;
       background: #22c55e;
       color: #08110b;
-      font-size: 16px;
-      font-weight: bold;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     #connectBtn.disconnect {
       background: #f59e0b;
@@ -58,28 +64,63 @@
     }
     #status {
       font-size: 13px;
-      margin-bottom: 12px;
       color: #cbd5e1;
+      margin-bottom: 12px;
       min-height: 18px;
     }
+    .badge {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-weight: bold;
+      margin-bottom: 12px;
+    }
+    .stance { background: #334155; color: #e2e8f0; }
+    .lift { background: #2563eb; color: white; }
+    .swing { background: #16a34a; color: white; }
+    .strike { background: #dc2626; color: white; }
     .row {
       display: flex;
       justify-content: space-between;
-      margin: 8px 0;
       gap: 12px;
+      margin: 8px 0;
     }
     .label { color: #94a3b8; }
-    .value {
-      color: #f8fafc;
+    .value { color: #f8fafc; font-weight: bold; text-align: right; }
+    #eventFlash {
+      position: absolute;
+      right: 20px;
+      top: 20px;
+      padding: 12px 18px;
+      border-radius: 12px;
+      font-size: 24px;
       font-weight: bold;
-      text-align: right;
-      word-break: break-word;
+      background: rgba(220, 38, 38, 0.9);
+      color: #fff;
+      opacity: 0;
+      transform: scale(0.9);
+      transition: all 0.18s ease;
+      pointer-events: none;
     }
-    .section-title {
-      margin-top: 14px;
-      margin-bottom: 6px;
-      color: #67e8f9;
-      font-size: 13px;
+    #eventFlash.show {
+      opacity: 1;
+      transform: scale(1);
+    }
+    #chartWrap {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      height: 180px;
+      background: rgba(0,0,0,0.45);
+      border-radius: 16px;
+      padding: 10px;
+      pointer-events: none;
+    }
+    #chartCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
     }
     .hint {
       margin-top: 10px;
@@ -91,57 +132,46 @@
 </head>
 <body>
   <div id="app">
-    <canvas id="canvas"></canvas>
+    <canvas id="threeCanvas"></canvas>
 
-    <div id="panel">
-      <h2>ESP32 BLE IMU</h2>
-      <button id="connectBtn">连接 BLE 设备</button>
-      <div id="status">未连接</div>
+    <div id="overlay">
+      <div id="panel">
+        <h2>ESP32 步态识别</h2>
+        <button id="connectBtn">连接 BLE 设备</button>
+        <div id="status">未连接</div>
+        <div id="gaitBadge" class="badge stance">STANCE</div>
 
-      <div class="row"><div class="label">时间</div><div class="value" id="time">--</div></div>
-      <div class="row"><div class="label">温度</div><div class="value" id="temp">--</div></div>
-      <div class="row"><div class="label">湿度</div><div class="value" id="humidity">--</div></div>
+        <div class="row"><div class="label">步数</div><div class="value" id="steps">0</div></div>
+        <div class="row"><div class="label">时间</div><div class="value" id="time">--</div></div>
+        <div class="row"><div class="label">温度</div><div class="value" id="temp">--</div></div>
+        <div class="row"><div class="label">湿度</div><div class="value" id="humidity">--</div></div>
 
-      <div class="section-title">加速度</div>
-      <div class="row"><div class="label">ax, ay, az</div><div class="value" id="accel">--</div></div>
+        <div class="row"><div class="label">ax, ay, az</div><div class="value" id="accel">--</div></div>
+        <div class="row"><div class="label">gx, gy, gz</div><div class="value" id="gyro">--</div></div>
+        <div class="row"><div class="label">acc_mag</div><div class="value" id="accMag">--</div></div>
+        <div class="row"><div class="label">gyro_mag</div><div class="value" id="gyroMag">--</div></div>
+        <div class="row"><div class="label">pitch / roll</div><div class="value" id="angles">--</div></div>
 
-      <div class="section-title">陀螺仪</div>
-      <div class="row"><div class="label">gx, gy, gz</div><div class="value" id="gyro">--</div></div>
+        <div class="hint">
+          Route A = 规则法：<br />
+          抬脚：角速度升高<br />
+          摆动：持续高角速度<br />
+          落脚：加速度冲击峰
+        </div>
+      </div>
 
-      <div class="section-title">姿态角</div>
-      <div class="row"><div class="label">roll / pitch / yaw</div><div class="value" id="rpy">--</div></div>
+      <div id="eventFlash">HEEL STRIKE</div>
 
-      <div class="hint">
-        手势：<br />
-        单指拖动平移视角<br />
-        双指缩放 / 鼠标滚轮缩放
+      <div id="chartWrap">
+        <canvas id="chartCanvas"></canvas>
       </div>
     </div>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-
   <script>
-    // ===== BLE UUID =====
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const TX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
-
-    // ===== 传感器参数（与你当前 ESP32 配置一致）=====
-    // ESP32端: startGyro(100, 2000), startAccel(100, 16)
-    const GYRO_DPS_PER_LSB = 2000 / 32768.0;
-    const DEG_TO_RAD = Math.PI / 180.0;
-    const RAD_TO_DEG = 180.0 / Math.PI;
-    const GYRO_RAD_PER_LSB = GYRO_DPS_PER_LSB * DEG_TO_RAD;
-
-    // 如果 ax/ay/az 是原始计数值，可按 ±16g 近似换算
-    const ACC_G_PER_LSB = 16 / 32768.0;
-
-    // ===== 可调参数 =====
-    const gyroDeadband = 10;       // 陀螺仪死区，越大越稳，越不灵敏
-    const accelCorrection = 0.02;  // 互补滤波系数，0.01~0.05
-    const yawDamping = 0.9995;     // Z轴阻尼，越小越不漂，但越“钝”
-    const maxDt = 0.05;            // 防止页面卡顿后dt过大
-    const minDt = 0.005;
 
     const state = {
       connected: false,
@@ -153,51 +183,126 @@
       time: 0,
       temp: 0,
       humidity: 0,
+
       ax: 0, ay: 0, az: 0,
       gx: 0, gy: 0, gz: 0,
+      acc_mag: 0,
+      gyro_mag: 0,
+      roll: 0,
+      pitch: 0,
+      yaw: 0,
 
-      rotX: 0,   // roll
-      rotY: 0,   // pitch
-      rotZ: 0,   // yaw
+      gait_state: 'STANCE',
+      steps: 0,
 
-      lastAnimTs: null
+      lastGaitState: 'STANCE',
+      chartAcc: [],
+      chartGyro: [],
+      maxPoints: 180
     };
 
-    // ===== DOM =====
     const connectBtn = document.getElementById('connectBtn');
     const statusEl = document.getElementById('status');
+    const gaitBadge = document.getElementById('gaitBadge');
+    const stepsEl = document.getElementById('steps');
     const timeEl = document.getElementById('time');
     const tempEl = document.getElementById('temp');
     const humidityEl = document.getElementById('humidity');
     const accelEl = document.getElementById('accel');
     const gyroEl = document.getElementById('gyro');
-    const rpyEl = document.getElementById('rpy');
+    const accMagEl = document.getElementById('accMag');
+    const gyroMagEl = document.getElementById('gyroMag');
+    const anglesEl = document.getElementById('angles');
+    const eventFlash = document.getElementById('eventFlash');
+
+    function deg(rad) {
+      return rad * 180 / Math.PI;
+    }
+
+    function updateBadge() {
+      gaitBadge.textContent = state.gait_state;
+      gaitBadge.className = 'badge';
+
+      if (state.gait_state === 'STANCE') gaitBadge.classList.add('stance');
+      if (state.gait_state === 'LIFT_OFF') gaitBadge.classList.add('lift');
+      if (state.gait_state === 'SWING') gaitBadge.classList.add('swing');
+      if (state.gait_state === 'HEEL_STRIKE') gaitBadge.classList.add('strike');
+    }
+
+    function flashEvent(text) {
+      eventFlash.textContent = text;
+      eventFlash.classList.add('show');
+      clearTimeout(flashEvent._timer);
+      flashEvent._timer = setTimeout(() => {
+        eventFlash.classList.remove('show');
+      }, 220);
+    }
 
     function updateInfo() {
-      timeEl.textContent = Number.isFinite(state.time) ? state.time.toFixed(3) : '--';
-      tempEl.textContent = Number.isFinite(state.temp) ? `${state.temp.toFixed(2)} °C` : '--';
-      humidityEl.textContent = Number.isFinite(state.humidity) ? `${state.humidity.toFixed(1)} %` : '--';
-      accelEl.textContent = `${state.ax.toFixed(1)}, ${state.ay.toFixed(1)}, ${state.az.toFixed(1)}`;
-      gyroEl.textContent = `${state.gx.toFixed(1)}, ${state.gy.toFixed(1)}, ${state.gz.toFixed(1)}`;
-      rpyEl.textContent = `${(state.rotX * RAD_TO_DEG).toFixed(1)}°, ${(state.rotY * RAD_TO_DEG).toFixed(1)}°, ${(state.rotZ * RAD_TO_DEG).toFixed(1)}°`;
-
       statusEl.textContent = state.connected ? '已连接，正在接收 BLE 数据' : '未连接';
       connectBtn.textContent = state.connected ? '断开连接' : '连接 BLE 设备';
       connectBtn.className = state.connected ? 'disconnect' : '';
+
+      updateBadge();
+
+      stepsEl.textContent = String(state.steps);
+      timeEl.textContent = state.time ? state.time.toFixed(3) : '--';
+      tempEl.textContent = Number.isFinite(state.temp) ? `${state.temp.toFixed(2)} °C` : '--';
+      humidityEl.textContent = Number.isFinite(state.humidity) ? `${state.humidity.toFixed(1)} %` : '--';
+      accelEl.textContent = `${state.ax.toFixed(2)}, ${state.ay.toFixed(2)}, ${state.az.toFixed(2)}`;
+      gyroEl.textContent = `${state.gx.toFixed(2)}, ${state.gy.toFixed(2)}, ${state.gz.toFixed(2)}`;
+      accMagEl.textContent = state.acc_mag.toFixed(3);
+      gyroMagEl.textContent = state.gyro_mag.toFixed(2);
+      anglesEl.textContent = `${deg(state.pitch).toFixed(1)}° / ${deg(state.roll).toFixed(1)}°`;
+    }
+
+    function pushChartValue(arr, v) {
+      arr.push(v);
+      if (arr.length > state.maxPoints) arr.shift();
     }
 
     function parseLine(line) {
       try {
         const data = JSON.parse(line);
+
         if (data.time !== undefined) state.time = Number(data.time);
         if (data.temp !== undefined) state.temp = Number(data.temp);
         if (data.humidity !== undefined) state.humidity = Number(data.humidity);
+
         if (data.ax !== undefined) state.ax = Number(data.ax);
         if (data.ay !== undefined) state.ay = Number(data.ay);
         if (data.az !== undefined) state.az = Number(data.az);
+
         if (data.gx !== undefined) state.gx = Number(data.gx);
         if (data.gy !== undefined) state.gy = Number(data.gy);
         if (data.gz !== undefined) state.gz = Number(data.gz);
+
+        if (data.acc_mag !== undefined) {
+          state.acc_mag = Number(data.acc_mag);
+          pushChartValue(state.chartAcc, state.acc_mag);
+        }
+
+        if (data.gyro_mag !== undefined) {
+          state.gyro_mag = Number(data.gyro_mag);
+          pushChartValue(state.chartGyro, state.gyro_mag);
+        }
+
+        if (data.roll !== undefined) state.roll = Number(data.roll);
+        if (data.pitch !== undefined) state.pitch = Number(data.pitch);
+        if (data.yaw !== undefined) state.yaw = Number(data.yaw);
+
+        if (data.steps !== undefined) state.steps = Number(data.steps);
+
+        if (data.gait_state !== undefined) {
+          const prev = state.gait_state;
+          state.gait_state = String(data.gait_state);
+
+          if (prev !== state.gait_state) {
+            if (state.gait_state === 'HEEL_STRIKE') flashEvent('HEEL STRIKE');
+            if (state.gait_state === 'LIFT_OFF') flashEvent('LIFT OFF');
+          }
+        }
+
         updateInfo();
       } catch (e) {
         console.log('bad json:', line);
@@ -265,235 +370,145 @@
         }
       } catch (err) {
         console.error(err);
-        if (err && err.message && err.message.includes('User cancelled')) {
-          return;
-        }
+        if (err && err.message && err.message.includes('User cancelled')) return;
         alert('连接失败: ' + err.message);
       }
     });
 
-    // ===== Three.js =====
-    const canvas = document.getElementById('canvas');
+    // ===== 3D 姿态 =====
+    const threeCanvas = document.getElementById('threeCanvas');
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x111827);
+    scene.background = new THREE.Color(0x0f172a);
 
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(1.8, 0.2, 8);
+    camera.position.set(2.2, 0.4, 8);
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    const renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    // 光照
     scene.add(new THREE.AmbientLight(0xffffff, 0.65));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
-    dirLight.position.set(5, 5, 6);
-    scene.add(dirLight);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+    dir.position.set(6, 5, 8);
+    scene.add(dir);
 
-    // 坐标轴组
-    const gyroGroup = new THREE.Group();
-    scene.add(gyroGroup);
+    const boardGroup = new THREE.Group();
+    scene.add(boardGroup);
 
-    const axisLen = 4;
-    const axisRadius = 0.08;
+    const pcbGeo = new THREE.BoxGeometry(2.2, 4.4, 0.18);
+    const pcbMat = new THREE.MeshPhongMaterial({ color: 0x0f9d58 });
+    const pcb = new THREE.Mesh(pcbGeo, pcbMat);
+    boardGroup.add(pcb);
 
-    // X轴 红
-    const xMat = new THREE.MeshPhongMaterial({ color: 0xef4444 });
-    const xGeo = new THREE.CylinderGeometry(axisRadius, axisRadius, axisLen, 8);
-    const xAxis = new THREE.Mesh(xGeo, xMat);
-    xAxis.rotation.z = Math.PI / 2;
-    gyroGroup.add(xAxis);
+    const edges = new THREE.EdgesGeometry(pcbGeo);
+    const edgeLines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffffff }));
+    boardGroup.add(edgeLines);
 
-    const coneGeo = new THREE.ConeGeometry(0.2, 0.5, 8);
-    const xArrow = new THREE.Mesh(coneGeo, xMat);
-    xArrow.position.set(axisLen / 2 + 0.25, 0, 0);
-    xArrow.rotation.z = -Math.PI / 2;
-    gyroGroup.add(xArrow);
+    const axes = new THREE.AxesHelper(3);
+    scene.add(axes);
 
-    // Y轴 绿
-    const yMat = new THREE.MeshPhongMaterial({ color: 0x22c55e });
-    const yAxis = new THREE.Mesh(xGeo, yMat);
-    gyroGroup.add(yAxis);
-
-    const yArrow = new THREE.Mesh(coneGeo, yMat);
-    yArrow.position.set(0, axisLen / 2 + 0.25, 0);
-    gyroGroup.add(yArrow);
-
-    // Z轴 蓝
-    const zMat = new THREE.MeshPhongMaterial({ color: 0x3b82f6 });
-    const zAxis = new THREE.Mesh(xGeo, zMat);
-    zAxis.rotation.x = Math.PI / 2;
-    gyroGroup.add(zAxis);
-
-    const zArrow = new THREE.Mesh(coneGeo, zMat);
-    zArrow.position.set(0, 0, axisLen / 2 + 0.25);
-    zArrow.rotation.x = Math.PI / 2;
-    gyroGroup.add(zArrow);
-
-    // 中心球
-    const center = new THREE.Mesh(
-      new THREE.SphereGeometry(0.25, 20, 20),
-      new THREE.MeshPhongMaterial({
-        color: 0xffffff,
-        emissive: 0xfbbf24,
-        emissiveIntensity: 0.45
-      })
-    );
-    gyroGroup.add(center);
-
-    // 三个正交环
-    const ringMat = new THREE.MeshPhongMaterial({
-      color: 0x38bdf8,
-      transparent: true,
-      opacity: 0.35,
-      side: THREE.DoubleSide
-    });
-    const ringGeo = new THREE.TorusGeometry(axisLen * 0.65, 0.05, 8, 48);
-
-    const ringX = new THREE.Mesh(ringGeo, ringMat);
-    ringX.rotation.y = Math.PI / 2;
-    gyroGroup.add(ringX);
-
-    const ringY = new THREE.Mesh(ringGeo, ringMat);
-    ringY.rotation.x = Math.PI / 2;
-    gyroGroup.add(ringY);
-
-    const ringZ = new THREE.Mesh(ringGeo, ringMat);
-    gyroGroup.add(ringZ);
-
-    // ===== 工具函数 =====
-    function deadband(v, threshold) {
-      return Math.abs(v) < threshold ? 0 : v;
-    }
-
-    function clamp(v, lo, hi) {
-      return Math.max(lo, Math.min(hi, v));
-    }
-
-    // ===== 视角交互 =====
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    canvas.addEventListener('wheel', (e) => {
+    // 触控/鼠标移动视角
+    let dragging = false, lx = 0, ly = 0;
+    threeCanvas.addEventListener('mousedown', e => {
+      dragging = true; lx = e.clientX; ly = e.clientY;
+    });
+    threeCanvas.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      camera.position.x += (e.clientX - lx) * 0.008;
+      camera.position.y -= (e.clientY - ly) * 0.008;
+      lx = e.clientX; ly = e.clientY;
+    });
+    threeCanvas.addEventListener('mouseup', () => dragging = false);
+    threeCanvas.addEventListener('mouseleave', () => dragging = false);
+
+    threeCanvas.addEventListener('wheel', e => {
       e.preventDefault();
-      camera.position.z = clamp(camera.position.z + e.deltaY * 0.001, 3, 20);
+      camera.position.z = Math.max(3, Math.min(18, camera.position.z + e.deltaY * 0.001));
     }, { passive: false });
 
-    let isDragging = false;
-    let lastMouseX = 0;
-    let lastMouseY = 0;
+    function animate3D() {
+      boardGroup.rotation.x = state.roll;
+      boardGroup.rotation.z = state.pitch;
+      boardGroup.rotation.y = state.yaw * 0.25;
 
-    canvas.addEventListener('mousedown', (e) => {
-      isDragging = true;
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
-    });
-
-    canvas.addEventListener('mousemove', (e) => {
-      if (!isDragging) return;
-      const moveSpeed = 0.008;
-      camera.position.x += (e.clientX - lastMouseX) * moveSpeed;
-      camera.position.y -= (e.clientY - lastMouseY) * moveSpeed;
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
-    });
-
-    canvas.addEventListener('mouseup', () => { isDragging = false; });
-    canvas.addEventListener('mouseleave', () => { isDragging = false; });
-
-    let lastTouchDist = 0;
-    let lastTouchX = 0;
-    let lastTouchY = 0;
-
-    canvas.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        lastTouchDist = Math.sqrt(dx * dx + dy * dy);
-      } else if (e.touches.length === 1) {
-        lastTouchX = e.touches[0].clientX;
-        lastTouchY = e.touches[0].clientY;
-      }
-    });
-
-    canvas.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-
-      if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const delta = lastTouchDist - dist;
-        camera.position.z = clamp(camera.position.z + delta * 0.02, 3, 20);
-        lastTouchDist = dist;
-      } else if (e.touches.length === 1) {
-        const moveSpeed = 0.008;
-        camera.position.x += (e.touches[0].clientX - lastTouchX) * moveSpeed;
-        camera.position.y -= (e.touches[0].clientY - lastTouchY) * moveSpeed;
-        lastTouchX = e.touches[0].clientX;
-        lastTouchY = e.touches[0].clientY;
-      }
-    }, { passive: false });
-
-    // ===== 动画主循环 =====
-    function animate3D(ts) {
-      if (state.lastAnimTs == null) state.lastAnimTs = ts;
-      let dt = (ts - state.lastAnimTs) / 1000;
-      state.lastAnimTs = ts;
-      dt = clamp(dt, minDt, maxDt);
-
-      // 1) 陀螺仪死区
-      const gxRaw = deadband(state.gx, gyroDeadband);
-      const gyRaw = deadband(state.gy, gyroDeadband);
-      const gzRaw = deadband(state.gz, gyroDeadband);
-
-      // 2) 原始值 -> rad/s
-      const gxRad = gxRaw * GYRO_RAD_PER_LSB;
-      const gyRad = gyRaw * GYRO_RAD_PER_LSB;
-      const gzRad = gzRaw * GYRO_RAD_PER_LSB;
-
-      // 3) 陀螺仪积分
-      state.rotX += gxRad * dt;   // roll
-      state.rotY += gyRad * dt;   // pitch
-      state.rotZ += gzRad * dt;   // yaw
-
-      // 4) 加速度回正（只修正 X/Y，不碰 Z）
-      const ax = state.ax * ACC_G_PER_LSB;
-      const ay = state.ay * ACC_G_PER_LSB;
-      const az = state.az * ACC_G_PER_LSB;
-
-      const norm = Math.sqrt(ax * ax + ay * ay + az * az);
-      if (norm > 1e-6) {
-        const axn = ax / norm;
-        const ayn = ay / norm;
-        const azn = az / norm;
-
-        // 常见 roll/pitch 估计
-        const accelRoll = Math.atan2(ayn, azn);
-        const accelPitch = Math.atan2(-axn, Math.sqrt(ayn * ayn + azn * azn));
-
-        state.rotX = state.rotX * (1 - accelCorrection) + accelRoll * accelCorrection;
-        state.rotY = state.rotY * (1 - accelCorrection) + accelPitch * accelCorrection;
-      }
-
-      // 5) yaw 轻微阻尼，防漂
-      state.rotZ *= yawDamping;
-
-      // 6) 赋给 Three.js
-      gyroGroup.rotation.x = state.rotX;
-      gyroGroup.rotation.y = state.rotZ;
-      gyroGroup.rotation.z = state.rotY;
-
-      updateInfo();
       renderer.render(scene, camera);
       requestAnimationFrame(animate3D);
     }
 
+    // ===== 简单曲线图 =====
+    const chartCanvas = document.getElementById('chartCanvas');
+    const chartCtx = chartCanvas.getContext('2d');
+
+    function resizeChart() {
+      const rect = chartCanvas.getBoundingClientRect();
+      chartCanvas.width = rect.width * devicePixelRatio;
+      chartCanvas.height = rect.height * devicePixelRatio;
+      chartCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    }
+
+    window.addEventListener('resize', resizeChart);
+    resizeChart();
+
+    function drawLine(arr, color, maxVal, minVal) {
+      const w = chartCanvas.clientWidth;
+      const h = chartCanvas.clientHeight;
+      if (arr.length < 2) return;
+
+      chartCtx.beginPath();
+      chartCtx.strokeStyle = color;
+      chartCtx.lineWidth = 2;
+
+      for (let i = 0; i < arr.length; i++) {
+        const x = (i / (state.maxPoints - 1)) * w;
+        const yNorm = (arr[i] - minVal) / (maxVal - minVal + 1e-6);
+        const y = h - yNorm * h;
+        if (i === 0) chartCtx.moveTo(x, y);
+        else chartCtx.lineTo(x, y);
+      }
+      chartCtx.stroke();
+    }
+
+    function drawChart() {
+      const w = chartCanvas.clientWidth;
+      const h = chartCanvas.clientHeight;
+
+      chartCtx.clearRect(0, 0, w, h);
+
+      // 网格
+      chartCtx.strokeStyle = 'rgba(255,255,255,0.08)';
+      chartCtx.lineWidth = 1;
+      for (let i = 1; i < 4; i++) {
+        const y = (h / 4) * i;
+        chartCtx.beginPath();
+        chartCtx.moveTo(0, y);
+        chartCtx.lineTo(w, y);
+        chartCtx.stroke();
+      }
+
+      // acc_mag 绿色
+      drawLine(state.chartAcc, '#22c55e', 2.2, 0.6);
+
+      // gyro_mag 蓝色
+      drawLine(state.chartGyro, '#38bdf8', 220, 0);
+
+      chartCtx.fillStyle = '#22c55e';
+      chartCtx.fillText('acc_mag', 10, 16);
+
+      chartCtx.fillStyle = '#38bdf8';
+      chartCtx.fillText('gyro_mag', 90, 16);
+
+      requestAnimationFrame(drawChart);
+    }
+
     updateInfo();
     requestAnimationFrame(animate3D);
+    requestAnimationFrame(drawChart);
   </script>
 </body>
 </html>
