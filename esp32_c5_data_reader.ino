@@ -351,26 +351,24 @@ void loop() {
     }
   }
 
-  char json[512];
-  snprintf(
-    json, sizeof(json),
-    "{\"time\":%.3f,\"temp\":%.2f,\"humidity\":%.1f,"
-    "\"ax\":%.3f,\"ay\":%.3f,\"az\":%.3f,"
-    "\"gx\":%.3f,\"gy\":%.3f,\"gz\":%.3f,"
-    "\"acc_mag\":%.3f,\"gyro_mag\":%.3f,"
-    "\"roll\":%.3f,\"pitch\":%.3f,\"yaw\":%.3f,"
-    "\"gyro_bias_x\":%.3f,\"gyro_bias_y\":%.3f,\"gyro_bias_z\":%.3f,"
-    "\"gait_state\":\"%s\",\"steps\":%d}\n",
-    now / 1000.0,
-    temp, hum,
-    filt_ax, filt_ay, filt_az,
-    filt_gx, filt_gy, filt_gz,
-    acc_mag, gyro_mag,
-    roll, pitch, yaw,
-    gyro_bias_x, gyro_bias_y, gyro_bias_z,
-    gaitStateName(gaitState),
-    stepCount
-  );
+ char json[256];
+snprintf(
+  json, sizeof(json),
+  "{\"t\":%.2f,\"tp\":%.1f,\"h\":%.1f,"
+  "\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,"
+  "\"gx\":%.1f,\"gy\":%.1f,\"gz\":%.1f,"
+  "\"am\":%.3f,\"gm\":%.1f,"
+  "\"r\":%.2f,\"p\":%.2f,"
+  "\"s\":\"%s\",\"n\":%d}\n",
+  now / 1000.0,
+  temp, hum,
+  filt_ax, filt_ay, filt_az,
+  filt_gx, filt_gy, filt_gz,
+  acc_mag, gyro_mag,
+  roll, pitch,
+  gaitStateName(gaitState),
+  stepCount
+);
 
   Serial.println(json);
 

@@ -14,23 +14,9 @@
       color: #fff;
       font-family: Arial, sans-serif;
     }
-    #app {
-      width: 100vw;
-      height: 100vh;
-      position: relative;
-    }
-    #threeCanvas {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-    #overlay {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-    }
+    #app { width: 100vw; height: 100vh; position: relative; }
+    #threeCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    #overlay { position: absolute; inset: 0; pointer-events: none; }
     #panel {
       position: absolute;
       left: 16px;
@@ -43,11 +29,7 @@
       pointer-events: auto;
       z-index: 10;
     }
-    #panel h2 {
-      color: #38bdf8;
-      margin-bottom: 12px;
-      font-size: 20px;
-    }
+    #panel h2 { color: #38bdf8; margin-bottom: 12px; font-size: 20px; }
     #connectBtn {
       width: 100%;
       padding: 12px;
@@ -59,10 +41,7 @@
       color: #08110b;
       margin-bottom: 10px;
     }
-    #connectBtn.disconnect {
-      background: #f59e0b;
-      color: #1f1300;
-    }
+    #connectBtn.disconnect { background: #f59e0b; color: #1f1300; }
     #status {
       font-size: 13px;
       color: #cbd5e1;
@@ -82,7 +61,6 @@
     .lift { background: #2563eb; color: white; }
     .swing { background: #16a34a; color: white; }
     .strike { background: #dc2626; color: white; }
-
     .row {
       display: flex;
       justify-content: space-between;
@@ -97,7 +75,6 @@
       word-break: break-word;
       max-width: 220px;
     }
-
     #eventFlash {
       position: absolute;
       right: 20px;
@@ -114,11 +91,7 @@
       pointer-events: none;
       z-index: 20;
     }
-    #eventFlash.show {
-      opacity: 1;
-      transform: scale(1);
-    }
-
+    #eventFlash.show { opacity: 1; transform: scale(1); }
     #chartWrap {
       position: absolute;
       left: 16px;
@@ -130,24 +103,12 @@
       padding: 10px;
       pointer-events: none;
     }
-    #chartCanvas {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-
-    .hint {
-      margin-top: 10px;
-      font-size: 12px;
-      color: #94a3b8;
-      line-height: 1.45;
-    }
+    #chartCanvas { width: 100%; height: 100%; display: block; }
   </style>
 </head>
 <body>
   <div id="app">
     <canvas id="threeCanvas"></canvas>
-
     <div id="overlay">
       <div id="panel">
         <h2>ESP32 步态识别</h2>
@@ -159,21 +120,12 @@
         <div class="row"><div class="label">时间</div><div class="value" id="time">--</div></div>
         <div class="row"><div class="label">温度</div><div class="value" id="temp">--</div></div>
         <div class="row"><div class="label">湿度</div><div class="value" id="humidity">--</div></div>
-
         <div class="row"><div class="label">ax, ay, az</div><div class="value" id="accel">--</div></div>
         <div class="row"><div class="label">gx, gy, gz</div><div class="value" id="gyro">--</div></div>
         <div class="row"><div class="label">加速度模长</div><div class="value" id="accMag">--</div></div>
         <div class="row"><div class="label">角速度模长</div><div class="value" id="gyroMag">--</div></div>
         <div class="row"><div class="label">俯仰 / 横滚</div><div class="value" id="angles">--</div></div>
         <div class="row"><div class="label">最近原始包</div><div class="value" id="rawText">--</div></div>
-
-        <div class="hint">
-          规则法说明：<br />
-          静止：角速度低且加速度接近 1g<br />
-          抬脚：角速度升高<br />
-          摆动：持续高角速度<br />
-          落脚：出现冲击峰
-        </div>
       </div>
 
       <div id="eventFlash">落脚</div>
@@ -195,23 +147,14 @@
       server: null,
       service: null,
       txChar: null,
-
-      time: 0,
-      temp: 0,
-      humidity: 0,
-
+      time: 0, temp: 0, humidity: 0,
       ax: 0, ay: 0, az: 0,
       gx: 0, gy: 0, gz: 0,
-      acc_mag: 0,
-      gyro_mag: 0,
-      roll: 0,
-      pitch: 0,
-      yaw: 0,
-
+      acc_mag: 0, gyro_mag: 0,
+      roll: 0, pitch: 0,
       gait_state: 'IDLE',
       gait_state_cn: '静止',
       steps: 0,
-
       chartAcc: [],
       chartGyro: [],
       maxPoints: 180
@@ -234,9 +177,7 @@
     const rawTextEl = document.getElementById('rawText');
     const eventFlash = document.getElementById('eventFlash');
 
-    function deg(rad) {
-      return rad * 180 / Math.PI;
-    }
+    function deg(rad) { return rad * 180 / Math.PI; }
 
     function gaitStateToCN(s) {
       switch (s) {
@@ -252,7 +193,6 @@
     function updateBadge() {
       gaitBadge.textContent = state.gait_state_cn;
       gaitBadge.className = 'badge';
-
       if (state.gait_state === 'IDLE') gaitBadge.classList.add('idle');
       if (state.gait_state === 'STANCE') gaitBadge.classList.add('stance');
       if (state.gait_state === 'LIFT_OFF') gaitBadge.classList.add('lift');
@@ -264,29 +204,23 @@
       eventFlash.textContent = text;
       eventFlash.classList.add('show');
       clearTimeout(flashEvent._timer);
-      flashEvent._timer = setTimeout(() => {
-        eventFlash.classList.remove('show');
-      }, 220);
+      flashEvent._timer = setTimeout(() => eventFlash.classList.remove('show'), 220);
     }
 
     function updateInfo() {
-      statusEl.textContent = state.connected
-        ? '已连接，正在接收 BLE 数据'
-        : '未连接';
-
+      statusEl.textContent = state.connected ? '已连接，正在接收 BLE 数据' : '未连接';
       connectBtn.textContent = state.connected ? '断开连接' : '连接 BLE 设备';
       connectBtn.className = state.connected ? 'disconnect' : '';
-
       updateBadge();
 
       stepsEl.textContent = String(state.steps);
-      timeEl.textContent = Number.isFinite(state.time) ? state.time.toFixed(3) : '--';
-      tempEl.textContent = Number.isFinite(state.temp) ? `${state.temp.toFixed(2)} °C` : '--';
+      timeEl.textContent = Number.isFinite(state.time) ? state.time.toFixed(2) : '--';
+      tempEl.textContent = Number.isFinite(state.temp) ? `${state.temp.toFixed(1)} °C` : '--';
       humidityEl.textContent = Number.isFinite(state.humidity) ? `${state.humidity.toFixed(1)} %` : '--';
       accelEl.textContent = `${state.ax.toFixed(2)}, ${state.ay.toFixed(2)}, ${state.az.toFixed(2)}`;
-      gyroEl.textContent = `${state.gx.toFixed(2)}, ${state.gy.toFixed(2)}, ${state.gz.toFixed(2)}`;
-      accMagEl.textContent = Number.isFinite(state.acc_mag) ? state.acc_mag.toFixed(3) : '--';
-      gyroMagEl.textContent = Number.isFinite(state.gyro_mag) ? state.gyro_mag.toFixed(2) : '--';
+      gyroEl.textContent = `${state.gx.toFixed(1)}, ${state.gy.toFixed(1)}, ${state.gz.toFixed(1)}`;
+      accMagEl.textContent = state.acc_mag.toFixed(3);
+      gyroMagEl.textContent = state.gyro_mag.toFixed(1);
       anglesEl.textContent = `${deg(state.pitch).toFixed(1)}° / ${deg(state.roll).toFixed(1)}°`;
     }
 
@@ -296,9 +230,9 @@
     }
 
     function applyData(data) {
-      if (data.time !== undefined) state.time = Number(data.time);
-      if (data.temp !== undefined) state.temp = Number(data.temp);
-      if (data.humidity !== undefined) state.humidity = Number(data.humidity);
+      if (data.t !== undefined) state.time = Number(data.t);
+      if (data.tp !== undefined) state.temp = Number(data.tp);
+      if (data.h !== undefined) state.humidity = Number(data.h);
 
       if (data.ax !== undefined) state.ax = Number(data.ax);
       if (data.ay !== undefined) state.ay = Number(data.ay);
@@ -308,25 +242,24 @@
       if (data.gy !== undefined) state.gy = Number(data.gy);
       if (data.gz !== undefined) state.gz = Number(data.gz);
 
-      if (data.acc_mag !== undefined) {
-        state.acc_mag = Number(data.acc_mag);
+      if (data.am !== undefined) {
+        state.acc_mag = Number(data.am);
         pushChartValue(state.chartAcc, state.acc_mag);
       }
 
-      if (data.gyro_mag !== undefined) {
-        state.gyro_mag = Number(data.gyro_mag);
+      if (data.gm !== undefined) {
+        state.gyro_mag = Number(data.gm);
         pushChartValue(state.chartGyro, state.gyro_mag);
       }
 
-      if (data.roll !== undefined) state.roll = Number(data.roll);
-      if (data.pitch !== undefined) state.pitch = Number(data.pitch);
-      if (data.yaw !== undefined) state.yaw = Number(data.yaw);
+      if (data.r !== undefined) state.roll = Number(data.r);
+      if (data.p !== undefined) state.pitch = Number(data.p);
 
-      if (data.steps !== undefined) state.steps = Number(data.steps);
+      if (data.n !== undefined) state.steps = Number(data.n);
 
-      if (data.gait_state !== undefined) {
+      if (data.s !== undefined) {
         const prev = state.gait_state;
-        state.gait_state = String(data.gait_state);
+        state.gait_state = String(data.s);
         state.gait_state_cn = gaitStateToCN(state.gait_state);
 
         if (prev !== state.gait_state) {
@@ -339,7 +272,7 @@
       updateInfo();
     }
 
-    function tryParseLine(line) {
+    function parseLine(line) {
       try {
         const data = JSON.parse(line);
         applyData(data);
@@ -349,86 +282,21 @@
       }
     }
 
-    function processBufferByNewline() {
-      let progressed = false;
+    function handleNotify(event) {
+      const text = new TextDecoder().decode(event.target.value);
+      rawTextEl.textContent = text.slice(0, 80).replace(/\n/g, '\\n');
+      bleBuffer += text;
+
       let idx;
       while ((idx = bleBuffer.indexOf('\n')) >= 0) {
         const line = bleBuffer.slice(0, idx).trim();
         bleBuffer = bleBuffer.slice(idx + 1);
-        if (line) {
-          tryParseLine(line);
-          progressed = true;
-        }
-      }
-      return progressed;
-    }
-
-    function processBufferByBraces() {
-      let start = -1;
-      let depth = 0;
-      let inString = false;
-      let escaped = false;
-
-      for (let i = 0; i < bleBuffer.length; i++) {
-        const ch = bleBuffer[i];
-
-        if (escaped) {
-          escaped = false;
-          continue;
-        }
-
-        if (ch === '\\') {
-          if (inString) escaped = true;
-          continue;
-        }
-
-        if (ch === '"') {
-          inString = !inString;
-          continue;
-        }
-
-        if (inString) continue;
-
-        if (ch === '{') {
-          if (depth === 0) start = i;
-          depth++;
-        } else if (ch === '}') {
-          depth--;
-          if (depth === 0 && start !== -1) {
-            const jsonText = bleBuffer.slice(start, i + 1);
-            const ok = tryParseLine(jsonText);
-            bleBuffer = bleBuffer.slice(i + 1);
-            if (!ok) {
-              console.log('brace parse failed:', jsonText);
-            }
-            return true;
-          }
-        }
+        if (line) parseLine(line);
       }
 
-      return false;
-    }
-
-    function processBleBuffer() {
-      let progressed = true;
-      while (progressed) {
-        progressed = false;
-        if (processBufferByNewline()) progressed = true;
-        else if (processBufferByBraces()) progressed = true;
+      if (bleBuffer.length > 1024) {
+        bleBuffer = bleBuffer.slice(-256);
       }
-
-      if (bleBuffer.length > 4096) {
-        bleBuffer = bleBuffer.slice(-1024);
-      }
-    }
-
-    function handleNotify(event) {
-      const value = event.target.value;
-      const text = new TextDecoder().decode(value);
-
-      rawTextEl.textContent = text.slice(0, 60).replace(/\n/g, '\\n');
-      bleBuffer += text;
-      processBleBuffer();
     }
 
     function onDisconnected() {
@@ -443,18 +311,12 @@
     }
 
     async function connectBLE() {
-      if (!navigator.bluetooth) {
-        alert('当前浏览器不支持 Web Bluetooth。请使用 Android Chrome，并通过 HTTPS 打开页面。');
-        return;
-      }
-
       state.device = await navigator.bluetooth.requestDevice({
         filters: [{ services: [SERVICE_UUID] }],
         optionalServices: [SERVICE_UUID]
       });
 
       state.device.addEventListener('gattserverdisconnected', onDisconnected);
-
       state.server = await state.device.gatt.connect();
       state.service = await state.server.getPrimaryService(SERVICE_UUID);
       state.txChar = await state.service.getCharacteristic(TX_UUID);
@@ -482,14 +344,11 @@
 
     connectBtn.addEventListener('click', async () => {
       try {
-        if (state.connected) {
-          await disconnectBLE();
-        } else {
-          await connectBLE();
-        }
+        if (state.connected) await disconnectBLE();
+        else await connectBLE();
       } catch (err) {
         console.error(err);
-        if (err && err.message && err.message.includes('User cancelled')) return;
+        if (err?.message?.includes('User cancelled')) return;
         alert('连接失败: ' + err.message);
       }
     });
@@ -522,39 +381,9 @@
     const edgeLines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffffff }));
     boardGroup.add(edgeLines);
 
-    const axes = new THREE.AxesHelper(3);
-    scene.add(axes);
-
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      resizeChart();
-    });
-
-    let dragging = false, lx = 0, ly = 0;
-    threeCanvas.addEventListener('mousedown', e => {
-      dragging = true; lx = e.clientX; ly = e.clientY;
-    });
-    threeCanvas.addEventListener('mousemove', e => {
-      if (!dragging) return;
-      camera.position.x += (e.clientX - lx) * 0.008;
-      camera.position.y -= (e.clientY - ly) * 0.008;
-      lx = e.clientX; ly = e.clientY;
-    });
-    threeCanvas.addEventListener('mouseup', () => dragging = false);
-    threeCanvas.addEventListener('mouseleave', () => dragging = false);
-
-    threeCanvas.addEventListener('wheel', e => {
-      e.preventDefault();
-      camera.position.z = Math.max(3, Math.min(18, camera.position.z + e.deltaY * 0.001));
-    }, { passive: false });
-
     function animate3D() {
       boardGroup.rotation.x = state.roll;
       boardGroup.rotation.z = state.pitch;
-      boardGroup.rotation.y = state.yaw * 0.25;
-
       renderer.render(scene, camera);
       requestAnimationFrame(animate3D);
     }
@@ -568,6 +397,13 @@
       chartCanvas.height = rect.height * devicePixelRatio;
       chartCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      resizeChart();
+    });
 
     function drawLine(arr, color, maxVal, minVal) {
       const w = chartCanvas.clientWidth;
@@ -591,7 +427,6 @@
     function drawChart() {
       const w = chartCanvas.clientWidth;
       const h = chartCanvas.clientHeight;
-
       chartCtx.clearRect(0, 0, w, h);
 
       chartCtx.strokeStyle = 'rgba(255,255,255,0.08)';
