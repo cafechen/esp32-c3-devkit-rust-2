@@ -153,14 +153,14 @@
         <div class="row"><div class="label">pitch / roll</div><div class="value" id="angles">--</div></div>
 
         <div class="hint">
-          Route A = 规则法：<br />
-          抬脚：角速度升高<br />
-          摆动：持续高角速度<br />
-          落脚：加速度冲击峰
+          步态识别：规则法<br />
+          站立 → 抬脚：角速度升高<br />
+          抬脚 → 摆动：持续高角速度<br />
+          摆动 → 落脚：加速度冲击峰
         </div>
       </div>
 
-      <div id="eventFlash">HEEL STRIKE</div>
+      <div id="eventFlash">落脚</div>
 
       <div id="chartWrap">
         <canvas id="chartCanvas"></canvas>
@@ -219,8 +219,16 @@
       return rad * 180 / Math.PI;
     }
 
+    function gaitNameCN(name) {
+      if (name === 'STANCE') return '站立';
+      if (name === 'LIFT_OFF') return '抬脚';
+      if (name === 'SWING') return '摆动';
+      if (name === 'HEEL_STRIKE') return '落脚';
+      return name;
+    }
+
     function updateBadge() {
-      gaitBadge.textContent = state.gait_state;
+      gaitBadge.textContent = gaitNameCN(state.gait_state);
       gaitBadge.className = 'badge';
 
       if (state.gait_state === 'STANCE') gaitBadge.classList.add('stance');
@@ -298,7 +306,7 @@
           state.gait_state = String(data.gait_state);
 
           if (prev !== state.gait_state) {
-            if (state.gait_state === 'HEEL_STRIKE') flashEvent('HEEL STRIKE');
+            if (state.gait_state === 'HEEL_STRIKE') flashEvent('落脚');
             if (state.gait_state === 'LIFT_OFF') flashEvent('LIFT OFF');
           }
         }
