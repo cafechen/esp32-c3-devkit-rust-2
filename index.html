@@ -309,16 +309,74 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
+    // 鼠标滚轮缩放
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomSpeed = 0.001;
+      camera.position.z = Math.max(3, Math.min(20, camera.position.z + e.deltaY * zoomSpeed));
+    }, { passive: false });
+
+    // 手机双指缩放 + 单指平移
+    let lastTouchDist = 0;
+    let lastTouchX = 0, lastTouchY = 0;
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastTouchDist = Math.sqrt(dx * dx + dy * dy);
+      } else if (e.touches.length === 1) {
+        lastTouchX = e.touches[0].clientX;
+        lastTouchY = e.touches[0].clientY;
+      }
+    });
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const delta = lastTouchDist - dist;
+        camera.position.z = Math.max(3, Math.min(20, camera.position.z + delta * 0.02));
+        lastTouchDist = dist;
+      } else if (e.touches.length === 1) {
+        const moveSpeed = 0.008;
+        camera.position.x += (e.touches[0].clientX - lastTouchX) * moveSpeed;
+        camera.position.y -= (e.touches[0].clientY - lastTouchY) * moveSpeed;
+        lastTouchX = e.touches[0].clientX;
+        lastTouchY = e.touches[0].clientY;
+      }
+    }, { passive: false });
+
+    // 鼠标拖拽平移
+    let isDragging = false;
+    let lastMouseX = 0, lastMouseY = 0;
+    canvas.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+    });
+    canvas.addEventListener('mousemove', (e) => {
+      if (isDragging) {
+        const moveSpeed = 0.008;
+        camera.position.x += (e.clientX - lastMouseX) * moveSpeed;
+        camera.position.y -= (e.clientY - lastMouseY) * moveSpeed;
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+      }
+    });
+    canvas.addEventListener('mouseup', () => isDragging = false);
+    canvas.addEventListener('mouseleave', () => isDragging = false);
+
     // 动画循环
     function animate3D(ts) {
       if (state.lastTs == null) state.lastTs = ts;
       const dt = Math.max(0.016, (ts - state.lastTs) / 1000);
       state.lastTs = ts;
 
-      // 陀螺仪积分计算旋转
-      state.rotX += state.gx * 0.0008;
-      state.rotY += state.gy * 0.0008;
-      state.rotZ += state.gz * 0.0008;
+      // 陀螺仪积分计算旋转 (ICM42670P 原始值 -> 弧度)
+      state.rotX += state.gx * 0.00015;
+      state.rotY += state.gy * 0.00015;
+      state.rotZ += state.gz * 0.00015;
 
       // 轻微回正
       state.rotX *= 0.998;
