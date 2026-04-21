@@ -68,16 +68,19 @@ const float LPF_ALPHA_ACC = 0.25f;
 const float LPF_ALPHA_GYRO = 0.25f;
 const float COMPLEMENTARY_ALPHA = 0.98f;
 
+// 静止死区
+const float GYRO_DEADBAND = 5.0f;   // dps
+
 // Idle 判断
-const float GYRO_IDLE_THRESHOLD = 8.0f;   // dps
+const float GYRO_IDLE_THRESHOLD = 12.0f;  // dps
 const float ACC_IDLE_LOW = 0.93f;         // g
 const float ACC_IDLE_HIGH = 1.07f;        // g
 
-// 步态阈值
-const float GYRO_LIFT_THRESHOLD = 35.0f;    // dps
-const float GYRO_SWING_THRESHOLD = 55.0f;   // dps
+// 步态阈值（先调高，避免静止误判）
+const float GYRO_LIFT_THRESHOLD = 80.0f;    // dps
+const float GYRO_SWING_THRESHOLD = 120.0f;  // dps
 const float ACC_STRIKE_THRESHOLD = 1.25f;   // g
-const float GYRO_STANCE_THRESHOLD = 18.0f;  // dps
+const float GYRO_STANCE_THRESHOLD = 30.0f;  // dps
 const float MIN_STEP_INTERVAL_MS = 250.0f;
 
 class ServerCallbacks : public NimBLEServerCallbacks {
@@ -112,6 +115,10 @@ const char* gaitStateName(GaitState s) {
   }
 }
 
+float applyDeadband(float v, float th) {
+  return (fabs(v) < th) ? 0.0f : v;
+}
+
 void setupBLE() {
   NimBLEDevice::init("ESP32C3-GAIT");
 
@@ -140,11 +147,20 @@ void setupBLE() {
 }
 
 void calibrateGyroBias() {
-  const int N = 120;
+  const int DISCARD = 100;   // 丢弃前面的不稳定样本
+  const int N = 400;         // 多取一点平均更稳
+
   float sx = 0, sy = 0, sz = 0;
   int valid = 0;
 
-  Serial.println("Calibrating gyro... keep device still");
+  Serial.println("Calibrating gyro... keep device still for 5 seconds");
+  delay(2000);
+
+  for (int i = 0; i < DISCARD; i++) {
+    inv_imu_sensor_event_t evt;
+    icm.getDataFromRegisters(evt);
+    delay(5);
+  }
 
   for (int i = 0; i < N; i++) {
     inv_imu_sensor_event_t evt;
@@ -154,7 +170,7 @@ void calibrateGyroBias() {
       sz += evt.gyro[2] * GYRO_DPS_PER_LSB;
       valid++;
     }
-    delay(10);
+    delay(5);
   }
 
   if (valid > 0) {
@@ -311,6 +327,11 @@ void loop() {
       filt_gy = LPF_ALPHA_GYRO * gy_dps + (1.0f - LPF_ALPHA_GYRO) * filt_gy;
       filt_gz = LPF_ALPHA_GYRO * gz_dps + (1.0f - LPF_ALPHA_GYRO) * filt_gz;
 
+      // 静止死区
+      filt_gx = applyDeadband(filt_gx, GYRO_DEADBAND);
+      filt_gy = applyDeadband(filt_gy, GYRO_DEADBAND);
+      filt_gz = applyDeadband(filt_gz, GYRO_DEADBAND);
+
       acc_mag = sqrtf(filt_ax * filt_ax + filt_ay * filt_ay + filt_az * filt_az);
       gyro_mag = sqrtf(filt_gx * filt_gx + filt_gy * filt_gy + filt_gz * filt_gz);
 
@@ -330,7 +351,7 @@ void loop() {
     }
   }
 
-  char json[384];
+  char json[512];
   snprintf(
     json, sizeof(json),
     "{\"time\":%.3f,\"temp\":%.2f,\"humidity\":%.1f,"
@@ -338,6 +359,7 @@ void loop() {
     "\"gx\":%.3f,\"gy\":%.3f,\"gz\":%.3f,"
     "\"acc_mag\":%.3f,\"gyro_mag\":%.3f,"
     "\"roll\":%.3f,\"pitch\":%.3f,\"yaw\":%.3f,"
+    "\"gyro_bias_x\":%.3f,\"gyro_bias_y\":%.3f,\"gyro_bias_z\":%.3f,"
     "\"gait_state\":\"%s\",\"steps\":%d}",
     now / 1000.0,
     temp, hum,
@@ -345,6 +367,7 @@ void loop() {
     filt_gx, filt_gy, filt_gz,
     acc_mag, gyro_mag,
     roll, pitch, yaw,
+    gyro_bias_x, gyro_bias_y, gyro_bias_z,
     gaitStateName(gaitState),
     stepCount
   );

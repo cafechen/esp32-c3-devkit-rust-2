@@ -41,6 +41,7 @@
       padding: 16px;
       backdrop-filter: blur(10px);
       pointer-events: auto;
+      z-index: 10;
     }
     #panel h2 {
       color: #38bdf8;
@@ -67,6 +68,7 @@
       color: #cbd5e1;
       margin-bottom: 12px;
       min-height: 18px;
+      line-height: 1.4;
     }
     .badge {
       display: inline-block;
@@ -88,7 +90,13 @@
       margin: 8px 0;
     }
     .label { color: #94a3b8; }
-    .value { color: #f8fafc; font-weight: bold; text-align: right; }
+    .value {
+      color: #f8fafc;
+      font-weight: bold;
+      text-align: right;
+      word-break: break-word;
+    }
+
     #eventFlash {
       position: absolute;
       right: 20px;
@@ -97,17 +105,19 @@
       border-radius: 12px;
       font-size: 24px;
       font-weight: bold;
-      background: rgba(220, 38, 38, 0.9);
+      background: rgba(220, 38, 38, 0.92);
       color: #fff;
       opacity: 0;
       transform: scale(0.9);
       transition: all 0.18s ease;
       pointer-events: none;
+      z-index: 20;
     }
     #eventFlash.show {
       opacity: 1;
       transform: scale(1);
     }
+
     #chartWrap {
       position: absolute;
       left: 16px;
@@ -124,6 +134,7 @@
       height: 100%;
       display: block;
     }
+
     .hint {
       margin-top: 10px;
       font-size: 12px;
@@ -204,6 +215,8 @@
       maxPoints: 180
     };
 
+    let bleBuffer = '';
+
     const connectBtn = document.getElementById('connectBtn');
     const statusEl = document.getElementById('status');
     const gaitBadge = document.getElementById('gaitBadge');
@@ -254,20 +267,23 @@
     }
 
     function updateInfo() {
-      statusEl.textContent = state.connected ? '已连接，正在接收 BLE 数据' : '未连接';
+      statusEl.textContent = state.connected
+        ? '已连接，正在接收 BLE 数据'
+        : '未连接';
+
       connectBtn.textContent = state.connected ? '断开连接' : '连接 BLE 设备';
       connectBtn.className = state.connected ? 'disconnect' : '';
 
       updateBadge();
 
       stepsEl.textContent = String(state.steps);
-      timeEl.textContent = state.time ? state.time.toFixed(3) : '--';
+      timeEl.textContent = Number.isFinite(state.time) ? state.time.toFixed(3) : '--';
       tempEl.textContent = Number.isFinite(state.temp) ? `${state.temp.toFixed(2)} °C` : '--';
       humidityEl.textContent = Number.isFinite(state.humidity) ? `${state.humidity.toFixed(1)} %` : '--';
       accelEl.textContent = `${state.ax.toFixed(2)}, ${state.ay.toFixed(2)}, ${state.az.toFixed(2)}`;
       gyroEl.textContent = `${state.gx.toFixed(2)}, ${state.gy.toFixed(2)}, ${state.gz.toFixed(2)}`;
-      accMagEl.textContent = state.acc_mag.toFixed(3);
-      gyroMagEl.textContent = state.gyro_mag.toFixed(2);
+      accMagEl.textContent = Number.isFinite(state.acc_mag) ? state.acc_mag.toFixed(3) : '--';
+      gyroMagEl.textContent = Number.isFinite(state.gyro_mag) ? state.gyro_mag.toFixed(2) : '--';
       anglesEl.textContent = `${deg(state.pitch).toFixed(1)}° / ${deg(state.roll).toFixed(1)}°`;
     }
 
@@ -276,60 +292,120 @@
       if (arr.length > state.maxPoints) arr.shift();
     }
 
-    function parseLine(line) {
+    function applyData(data) {
+      if (data.time !== undefined) state.time = Number(data.time);
+      if (data.temp !== undefined) state.temp = Number(data.temp);
+      if (data.humidity !== undefined) state.humidity = Number(data.humidity);
+
+      if (data.ax !== undefined) state.ax = Number(data.ax);
+      if (data.ay !== undefined) state.ay = Number(data.ay);
+      if (data.az !== undefined) state.az = Number(data.az);
+
+      if (data.gx !== undefined) state.gx = Number(data.gx);
+      if (data.gy !== undefined) state.gy = Number(data.gy);
+      if (data.gz !== undefined) state.gz = Number(data.gz);
+
+      if (data.acc_mag !== undefined) {
+        state.acc_mag = Number(data.acc_mag);
+        pushChartValue(state.chartAcc, state.acc_mag);
+      }
+
+      if (data.gyro_mag !== undefined) {
+        state.gyro_mag = Number(data.gyro_mag);
+        pushChartValue(state.chartGyro, state.gyro_mag);
+      }
+
+      if (data.roll !== undefined) state.roll = Number(data.roll);
+      if (data.pitch !== undefined) state.pitch = Number(data.pitch);
+      if (data.yaw !== undefined) state.yaw = Number(data.yaw);
+
+      if (data.steps !== undefined) state.steps = Number(data.steps);
+
+      if (data.gait_state !== undefined) {
+        const prev = state.gait_state;
+        state.gait_state = String(data.gait_state);
+        state.gait_state_cn = gaitStateToCN(state.gait_state);
+
+        if (prev !== state.gait_state) {
+          if (state.gait_state === 'HEEL_STRIKE') flashEvent('落脚');
+          if (state.gait_state === 'LIFT_OFF') flashEvent('抬脚');
+          if (state.gait_state === 'SWING') flashEvent('摆动');
+        }
+      }
+
+      updateInfo();
+    }
+
+    function tryParseObject(str) {
       try {
-        const data = JSON.parse(line);
+        const data = JSON.parse(str);
+        applyData(data);
+        return true;
+      } catch {
+        return false;
+      }
+    }
 
-        if (data.time !== undefined) state.time = Number(data.time);
-        if (data.temp !== undefined) state.temp = Number(data.temp);
-        if (data.humidity !== undefined) state.humidity = Number(data.humidity);
+    // 处理 BLE 分包/粘包：从缓冲中提取完整 JSON 对象
+    function processBleBuffer() {
+      let start = -1;
+      let depth = 0;
+      let inString = false;
+      let escaped = false;
 
-        if (data.ax !== undefined) state.ax = Number(data.ax);
-        if (data.ay !== undefined) state.ay = Number(data.ay);
-        if (data.az !== undefined) state.az = Number(data.az);
+      for (let i = 0; i < bleBuffer.length; i++) {
+        const ch = bleBuffer[i];
 
-        if (data.gx !== undefined) state.gx = Number(data.gx);
-        if (data.gy !== undefined) state.gy = Number(data.gy);
-        if (data.gz !== undefined) state.gz = Number(data.gz);
-
-        if (data.acc_mag !== undefined) {
-          state.acc_mag = Number(data.acc_mag);
-          pushChartValue(state.chartAcc, state.acc_mag);
+        if (escaped) {
+          escaped = false;
+          continue;
         }
 
-        if (data.gyro_mag !== undefined) {
-          state.gyro_mag = Number(data.gyro_mag);
-          pushChartValue(state.chartGyro, state.gyro_mag);
+        if (ch === '\\\\') {
+          if (inString) escaped = true;
+          continue;
         }
 
-        if (data.roll !== undefined) state.roll = Number(data.roll);
-        if (data.pitch !== undefined) state.pitch = Number(data.pitch);
-        if (data.yaw !== undefined) state.yaw = Number(data.yaw);
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
 
-        if (data.steps !== undefined) state.steps = Number(data.steps);
+        if (inString) continue;
 
-        if (data.gait_state !== undefined) {
-          const prev = state.gait_state;
-          state.gait_state = String(data.gait_state);
-          state.gait_state_cn = gaitStateToCN(state.gait_state);
+        if (ch === '{') {
+          if (depth === 0) start = i;
+          depth++;
+        } else if (ch === '}') {
+          depth--;
+          if (depth === 0 && start !== -1) {
+            const jsonText = bleBuffer.slice(start, i + 1);
+            const ok = tryParseObject(jsonText);
 
-          if (prev !== state.gait_state) {
-            if (state.gait_state === 'HEEL_STRIKE') flashEvent('落脚');
-            if (state.gait_state === 'LIFT_OFF') flashEvent('抬脚');
-            if (state.gait_state === 'SWING') flashEvent('摆动');
+            bleBuffer = bleBuffer.slice(i + 1);
+
+            if (!ok) {
+              // 丢掉当前包，继续尝试后续
+            }
+
+            processBleBuffer();
+            return;
           }
         }
+      }
 
-        updateInfo();
-      } catch (e) {
-        console.log('bad json:', line);
+      // 防止缓冲无限增长
+      if (bleBuffer.length > 4096) {
+        bleBuffer = bleBuffer.slice(-1024);
       }
     }
 
     function handleNotify(event) {
       const value = event.target.value;
       const text = new TextDecoder().decode(value);
-      parseLine(text.trim());
+
+      bleBuffer += text;
+      processBleBuffer();
     }
 
     function onDisconnected() {
@@ -338,6 +414,7 @@
       state.server = null;
       state.service = null;
       state.txChar = null;
+      bleBuffer = '';
       updateInfo();
     }
 
@@ -362,6 +439,7 @@
       state.txChar.addEventListener('characteristicvaluechanged', handleNotify);
 
       state.connected = true;
+      bleBuffer = '';
       updateInfo();
     }
 
