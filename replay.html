@@ -131,6 +131,41 @@
       margin-top: 10px;
     }
 
+    #edgeChangeList {
+      display: grid;
+      gap: 6px;
+      max-height: 170px;
+      overflow-y: auto;
+    }
+
+    .eventItem {
+      display: grid;
+      grid-template-columns: 74px 1fr;
+      gap: 8px;
+      align-items: center;
+      border-radius: 8px;
+      border: 1px solid #dce6e9;
+      background: #f7fbfb;
+      padding: 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .eventItem.active {
+      border-color: #f59e0b;
+      background: #fff7ed;
+    }
+
+    .eventTime {
+      color: #b45309;
+      font-weight: 900;
+    }
+
+    .eventMeta {
+      color: #526977;
+      line-height: 1.35;
+    }
+
     #pathCanvas, #chartCanvas {
       width: 100%;
       height: 100%;
@@ -215,7 +250,15 @@
           <div class="big" id="edgeCount">--</div>
           <div class="small">左右计数取最大值</div>
         </div>
+        <div class="card wide">
+          <div class="cardTitle">换刃过程</div>
+          <div class="big" id="edgeChangeStatus">--</div>
+          <div class="small" id="edgeChangeDetail">释放旧刃 → 过平板 → 建立新刃</div>
+        </div>
       </div>
+
+      <h2>换刃事件</h2>
+      <div id="edgeChangeList"></div>
 
       <h2>日志信息</h2>
       <div class="row"><span class="label">文件</span><span class="value" id="fileName">--</span></div>
@@ -246,6 +289,7 @@
       rows: [],
       frames: [],
       path: [],
+      edgeChangeSpans: [],
       fileName: '',
       duration: 0,
       index: 0,
@@ -270,6 +314,9 @@
       rightPhase: document.getElementById('rightPhase'),
       syncScore: document.getElementById('syncScore'),
       edgeCount: document.getElementById('edgeCount'),
+      edgeChangeStatus: document.getElementById('edgeChangeStatus'),
+      edgeChangeDetail: document.getElementById('edgeChangeDetail'),
+      edgeChangeList: document.getElementById('edgeChangeList'),
       fileName: document.getElementById('fileName'),
       rowCount: document.getElementById('rowCount'),
       durationText: document.getElementById('durationText'),
@@ -351,6 +398,72 @@
       return clamp(100 - Math.abs(edgeOf(frame, 'L') - edgeOf(frame, 'R')) * 4, 0, 100);
     }
 
+    function avgEdgeOf(frame) {
+      if (!frame?.L && !frame?.R) return 0;
+      if (frame?.L && frame?.R) return (edgeOf(frame, 'L') + edgeOf(frame, 'R')) / 2;
+      return frame?.L ? edgeOf(frame, 'L') : edgeOf(frame, 'R');
+    }
+
+    function edgeChangeScore(frame, prevFrame) {
+      const phaseChange = phaseOf(frame, 'L') === 'EDGE_CHANGE' || phaseOf(frame, 'R') === 'EDGE_CHANGE';
+      const ec = Math.max(Number(frame.L?.ec || 0), Number(frame.R?.ec || 0));
+      const prevEc = prevFrame ? Math.max(Number(prevFrame.L?.ec || 0), Number(prevFrame.R?.ec || 0)) : ec;
+      const avg = avgEdgeOf(frame);
+      const prevAvg = prevFrame ? avgEdgeOf(prevFrame) : avg;
+      const rollRate = Math.max(Math.abs(Number(frame.L?.rr || 0)), Math.abs(Number(frame.R?.rr || 0)));
+      const nearFlat = Math.abs(avg) < 8;
+      const crossedZero = Math.sign(avg) !== Math.sign(prevAvg) && Math.abs(avg - prevAvg) > 3;
+
+      let score = 0;
+      if (phaseChange) score += 3;
+      if (ec > prevEc) score += 3;
+      if (nearFlat && rollRate > 28) score += 2;
+      if (crossedZero) score += 2;
+      return score;
+    }
+
+    function buildEdgeChangeSpans(frames) {
+      const active = frames.map((frame, i) => edgeChangeScore(frame, frames[i - 1]) > 0);
+      const padFrames = 8;
+
+      // 给换刃前后加一点时间窗口，让“释放旧刃”和“建立新刃”也能被看见。
+      const padded = active.map((isActive, i) => {
+        if (isActive) return true;
+        const from = Math.max(0, i - padFrames);
+        const to = Math.min(active.length - 1, i + padFrames);
+        for (let j = from; j <= to; j++) {
+          if (active[j]) return true;
+        }
+        return false;
+      });
+
+      const spans = [];
+      let start = -1;
+      for (let i = 0; i < padded.length; i++) {
+        if (padded[i] && start < 0) start = i;
+        if ((!padded[i] || i === padded.length - 1) && start >= 0) {
+          const end = padded[i] ? i : i - 1;
+          const before = frames[Math.max(0, start - 1)];
+          const after = frames[Math.min(frames.length - 1, end + 1)];
+          spans.push({
+            start,
+            end,
+            startT: frames[start].t,
+            endT: frames[end].t,
+            fromEdge: avgEdgeOf(before),
+            toEdge: avgEdgeOf(after)
+          });
+          start = -1;
+        }
+      }
+
+      return spans.filter(span => span.end - span.start >= 2);
+    }
+
+    function edgeChangeAt(index) {
+      return state.edgeChangeSpans.find(span => index >= span.start && index <= span.end) || null;
+    }
+
     function buildEstimatedPath(frames) {
       const points = [];
       let x = 0;
@@ -410,6 +523,7 @@
       state.rows = rows;
       state.frames = buildFrames(rows);
       state.path = buildEstimatedPath(state.frames);
+      state.edgeChangeSpans = buildEdgeChangeSpans(state.frames);
       state.fileName = fileName;
       state.duration = state.frames.at(-1).t;
       state.index = 0;
@@ -428,6 +542,7 @@
       el.leftRange.textContent = statRange(state.rows, 'L', 'ed');
       el.rightRange.textContent = statRange(state.rows, 'R', 'ed');
       el.playBtn.textContent = '播放';
+      renderEdgeChangeList();
     }
 
     function updateUI() {
@@ -438,6 +553,7 @@
       const right = edgeOf(frame, 'R');
       const sync = syncScore(frame);
       const ec = Math.max(Number(frame.L?.ec || 0), Number(frame.R?.ec || 0));
+      const span = edgeChangeAt(state.index);
 
       el.timeText.textContent = `${frame.t.toFixed(2)} / ${state.duration.toFixed(2)} s`;
       el.scrub.value = state.frames.length > 1 ? Math.round((state.index / (state.frames.length - 1)) * 1000) : 0;
@@ -447,7 +563,49 @@
       el.rightPhase.textContent = phaseToCN(phaseOf(frame, 'R'));
       el.syncScore.textContent = Number.isFinite(sync) ? sync.toFixed(0) : '--';
       el.edgeCount.textContent = String(ec);
+      el.edgeChangeStatus.textContent = span ? '换刃中' : '非换刃';
+      el.edgeChangeDetail.textContent = span
+        ? `${span.startT.toFixed(2)}s → ${span.endT.toFixed(2)}s，平均立刃 ${span.fromEdge.toFixed(1)}° → ${span.toEdge.toFixed(1)}°`
+        : '释放旧刃 → 过平板 → 建立新刃';
       el.playBtn.textContent = state.playing ? '暂停' : '播放';
+      highlightEdgeChangeList();
+    }
+
+    function renderEdgeChangeList() {
+      el.edgeChangeList.innerHTML = '';
+      if (!state.edgeChangeSpans.length) {
+        const empty = document.createElement('div');
+        empty.className = 'eventItem';
+        empty.innerHTML = '<div class="eventTime">--</div><div class="eventMeta">没有检测到明显换刃区间</div>';
+        el.edgeChangeList.appendChild(empty);
+        return;
+      }
+
+      state.edgeChangeSpans.forEach((span, i) => {
+        const item = document.createElement('div');
+        item.className = 'eventItem';
+        item.dataset.index = String(i);
+        item.innerHTML = `
+          <div class="eventTime">${span.startT.toFixed(1)}s</div>
+          <div class="eventMeta">#${i + 1} · ${span.fromEdge.toFixed(1)}° → ${span.toEdge.toFixed(1)}° · ${(span.endT - span.startT).toFixed(2)}s</div>
+        `;
+        item.addEventListener('click', () => {
+          state.index = span.start;
+          state.playing = false;
+          updateUI();
+          drawAll();
+        });
+        el.edgeChangeList.appendChild(item);
+      });
+    }
+
+    function highlightEdgeChangeList() {
+      const current = edgeChangeAt(state.index);
+      const items = [...el.edgeChangeList.querySelectorAll('.eventItem')];
+      items.forEach((item, i) => {
+        const span = state.edgeChangeSpans[i];
+        item.classList.toggle('active', Boolean(current && span === current));
+      });
     }
 
     function pathBounds() {
@@ -519,6 +677,9 @@
       });
       pathCtx.stroke();
 
+      drawEdgeChangePathSegments(bounds, w, h);
+      drawEdgeChangeMarkers(bounds, w, h);
+
       pathCtx.strokeStyle = '#2563eb';
       pathCtx.beginPath();
       for (let i = 0; i <= state.index; i++) {
@@ -535,7 +696,50 @@
       pathCtx.fillText('估算滑行轨迹', 22, 32);
       pathCtx.font = '13px Arial';
       pathCtx.fillStyle = '#647783';
-      pathCtx.fillText('由左右立刃角生成，不是 GPS 真实路径', 22, 54);
+      pathCtx.fillText('橙色区间为换刃过程：释放旧刃 → 过平板 → 建立新刃', 22, 54);
+    }
+
+    function drawEdgeChangePathSegments(bounds, w, h) {
+      pathCtx.save();
+      pathCtx.lineWidth = 7;
+      pathCtx.lineCap = 'round';
+      pathCtx.strokeStyle = 'rgba(245, 158, 11, 0.82)';
+
+      for (const span of state.edgeChangeSpans) {
+        pathCtx.beginPath();
+        for (let i = span.start; i <= span.end; i++) {
+          const s = worldToScreen(state.path[i], bounds, w, h);
+          if (i === span.start) pathCtx.moveTo(s.x, s.y);
+          else pathCtx.lineTo(s.x, s.y);
+        }
+        pathCtx.stroke();
+      }
+
+      pathCtx.restore();
+    }
+
+    function drawEdgeChangeMarkers(bounds, w, h) {
+      state.edgeChangeSpans.forEach((span, i) => {
+        const mid = Math.round((span.start + span.end) / 2);
+        const p = state.path[mid];
+        if (!p) return;
+        const s = worldToScreen(p, bounds, w, h);
+
+        pathCtx.save();
+        pathCtx.fillStyle = '#f59e0b';
+        pathCtx.strokeStyle = '#ffffff';
+        pathCtx.lineWidth = 2;
+        pathCtx.beginPath();
+        pathCtx.arc(s.x, s.y, 11, 0, Math.PI * 2);
+        pathCtx.fill();
+        pathCtx.stroke();
+        pathCtx.fillStyle = '#ffffff';
+        pathCtx.font = '700 11px Arial';
+        pathCtx.textAlign = 'center';
+        pathCtx.textBaseline = 'middle';
+        pathCtx.fillText(String(i + 1), s.x, s.y + 0.5);
+        pathCtx.restore();
+      });
     }
 
     function drawSkis(point, bounds, w, h) {
@@ -583,6 +787,8 @@
 
       if (!state.frames.length) return;
 
+      drawEdgeChangeBands(w, h);
+
       chartCtx.strokeStyle = 'rgba(255,255,255,0.12)';
       chartCtx.lineWidth = 1;
       chartCtx.beginPath();
@@ -606,7 +812,18 @@
       chartCtx.fillStyle = '#fb923c';
       chartCtx.fillText('右板 ed', 86, 18);
       chartCtx.fillStyle = 'rgba(255,255,255,0.72)';
-      chartCtx.fillText('立刃角曲线', 160, 18);
+      chartCtx.fillText('橙色背景 = 换刃过程', 160, 18);
+    }
+
+    function drawEdgeChangeBands(w, h) {
+      chartCtx.save();
+      for (const span of state.edgeChangeSpans) {
+        const x1 = (span.start / Math.max(1, state.frames.length - 1)) * w;
+        const x2 = (span.end / Math.max(1, state.frames.length - 1)) * w;
+        chartCtx.fillStyle = 'rgba(245, 158, 11, 0.24)';
+        chartCtx.fillRect(x1, 0, Math.max(2, x2 - x1), h);
+      }
+      chartCtx.restore();
     }
 
     function drawSeries(side, color) {
