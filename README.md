@@ -114,6 +114,16 @@ python3 -m http.server 8000
 http://localhost:8000/index.html
 ```
 
+实时采集页面：
+
+- `index.html`：连接左右 ESP32，实时显示动作和导出日志。
+
+轨迹回放页面：
+
+- `replay.html`：加载 JSONL 日志，回放左右立刃角、动作阶段、同步分和估算滑行路径。
+- 默认会尝试加载 `ski_imu_log_1777385783530.jsonl`。
+- 也可以把任意 JSONL 日志拖到页面左侧区域，或通过文件选择器打开。
+
 ## 数据格式
 
 ESP32 串口会输出完整 JSON，方便调参和离线分析；BLE 会发送精简 JSON，避免 Web Bluetooth 通知包过长。

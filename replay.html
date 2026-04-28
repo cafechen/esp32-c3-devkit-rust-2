@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>滑雪 IMU 轨迹回放</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      background: #f3f7f8;
+      color: #16232c;
+      font-family: Arial, "Microsoft YaHei", sans-serif;
+    }
+
+    body { overflow-x: hidden; }
+
+    button, input[type="file"]::file-selector-button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #2563eb;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.secondary { background: #415462; }
+    button.warn { background: #b45309; }
+
+    input[type="range"] { width: 100%; accent-color: #2563eb; }
+    input[type="file"] { width: 100%; color: #42535f; }
+
+    #app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+    }
+
+    #panel {
+      padding: 18px;
+      background: #ffffff;
+      border-right: 1px solid #dce6e9;
+      overflow-y: auto;
+    }
+
+    #stage {
+      display: grid;
+      grid-template-rows: minmax(420px, 1fr) 240px;
+      min-height: 100vh;
+    }
+
+    h1 {
+      font-size: 24px;
+      line-height: 1.2;
+      margin-bottom: 14px;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 15px;
+      margin: 18px 0 8px;
+      color: #5b6f7b;
+      letter-spacing: 0;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .wide { grid-column: 1 / -1; }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid #edf2f4;
+      font-size: 14px;
+    }
+
+    .label { color: #647783; }
+    .value { font-weight: 800; text-align: right; overflow-wrap: anywhere; }
+
+    .metricGrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .card {
+      border-radius: 8px;
+      background: #eef5f6;
+      border: 1px solid #dce6e9;
+      padding: 10px;
+      min-height: 76px;
+    }
+
+    .cardTitle {
+      color: #647783;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .big {
+      font-size: 24px;
+      font-weight: 900;
+      line-height: 1.15;
+      overflow-wrap: anywhere;
+    }
+
+    .small {
+      margin-top: 4px;
+      color: #647783;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .notice {
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff7ed;
+      border-left: 4px solid #f59e0b;
+      color: #5f3b12;
+      font-size: 13px;
+      line-height: 1.45;
+      margin-top: 10px;
+    }
+
+    #pathCanvas, #chartCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #pathWrap {
+      position: relative;
+      min-height: 420px;
+      background: linear-gradient(180deg, #dff0f3, #f7fbfb);
+    }
+
+    #chartWrap {
+      background: #15222c;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 10px;
+    }
+
+    #dropZone {
+      border-radius: 8px;
+      border: 1px dashed #9eb2bd;
+      background: #f7fbfb;
+      padding: 12px;
+      color: #526977;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    #dropZone.drag {
+      background: #e0f2fe;
+      border-color: #2563eb;
+    }
+
+    @media (max-width: 920px) {
+      #app { grid-template-columns: 1fr; }
+      #panel { border-right: 0; border-bottom: 1px solid #dce6e9; }
+      #stage { min-height: 700px; grid-template-rows: 460px 220px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside id="panel">
+      <h1>轨迹回放</h1>
+
+      <div class="controls">
+        <button id="playBtn">播放</button>
+        <button id="resetBtn" class="secondary">回到开始</button>
+        <button id="loadDefaultBtn" class="secondary wide">加载默认日志</button>
+        <input id="fileInput" class="wide" type="file" accept=".jsonl,.json,text/plain" />
+      </div>
+
+      <div id="dropZone">
+        可把 JSONL 日志拖到这里。当前 BLE 日志没有 GPS/速度，画面中的滑行路径是用立刃角估算的示意轨迹；下方曲线是原始传感器数据。
+      </div>
+
+      <h2>播放</h2>
+      <div class="row"><span class="label">进度</span><span class="value" id="timeText">--</span></div>
+      <input id="scrub" type="range" min="0" max="1000" value="0" />
+      <div class="row"><span class="label">速度</span><span class="value" id="speedText">1.0x</span></div>
+      <input id="speedRange" type="range" min="0.25" max="4" step="0.25" value="1" />
+
+      <h2>当前动作</h2>
+      <div class="metricGrid">
+        <div class="card">
+          <div class="cardTitle">左板立刃</div>
+          <div class="big" id="leftEdge">--</div>
+          <div class="small" id="leftPhase">--</div>
+        </div>
+        <div class="card">
+          <div class="cardTitle">右板立刃</div>
+          <div class="big" id="rightEdge">--</div>
+          <div class="small" id="rightPhase">--</div>
+        </div>
+        <div class="card">
+          <div class="cardTitle">同步分</div>
+          <div class="big" id="syncScore">--</div>
+          <div class="small">左右立刃角差估算</div>
+        </div>
+        <div class="card">
+          <div class="cardTitle">换刃次数</div>
+          <div class="big" id="edgeCount">--</div>
+          <div class="small">左右计数取最大值</div>
+        </div>
+      </div>
+
+      <h2>日志信息</h2>
+      <div class="row"><span class="label">文件</span><span class="value" id="fileName">--</span></div>
+      <div class="row"><span class="label">数据行</span><span class="value" id="rowCount">--</span></div>
+      <div class="row"><span class="label">时长</span><span class="value" id="durationText">--</span></div>
+      <div class="row"><span class="label">左板范围</span><span class="value" id="leftRange">--</span></div>
+      <div class="row"><span class="label">右板范围</span><span class="value" id="rightRange">--</span></div>
+
+      <div class="notice">
+        如果需要真实地理轨迹，需要额外记录 GPS 或速度。仅靠当前日志无法还原真实位移，这里用立刃角生成的是训练复盘用的动作路径。
+      </div>
+    </aside>
+
+    <main id="stage">
+      <section id="pathWrap">
+        <canvas id="pathCanvas"></canvas>
+      </section>
+      <section id="chartWrap">
+        <canvas id="chartCanvas"></canvas>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const DEFAULT_LOG = 'ski_imu_log_1777385783530.jsonl';
+
+    const state = {
+      rows: [],
+      frames: [],
+      path: [],
+      fileName: '',
+      duration: 0,
+      index: 0,
+      playing: false,
+      speed: 1,
+      lastClock: 0
+    };
+
+    const el = {
+      playBtn: document.getElementById('playBtn'),
+      resetBtn: document.getElementById('resetBtn'),
+      loadDefaultBtn: document.getElementById('loadDefaultBtn'),
+      fileInput: document.getElementById('fileInput'),
+      dropZone: document.getElementById('dropZone'),
+      scrub: document.getElementById('scrub'),
+      speedRange: document.getElementById('speedRange'),
+      speedText: document.getElementById('speedText'),
+      timeText: document.getElementById('timeText'),
+      leftEdge: document.getElementById('leftEdge'),
+      rightEdge: document.getElementById('rightEdge'),
+      leftPhase: document.getElementById('leftPhase'),
+      rightPhase: document.getElementById('rightPhase'),
+      syncScore: document.getElementById('syncScore'),
+      edgeCount: document.getElementById('edgeCount'),
+      fileName: document.getElementById('fileName'),
+      rowCount: document.getElementById('rowCount'),
+      durationText: document.getElementById('durationText'),
+      leftRange: document.getElementById('leftRange'),
+      rightRange: document.getElementById('rightRange')
+    };
+
+    const pathCanvas = document.getElementById('pathCanvas');
+    const pathCtx = pathCanvas.getContext('2d');
+    const chartCanvas = document.getElementById('chartCanvas');
+    const chartCtx = chartCanvas.getContext('2d');
+
+    function clamp(v, lo, hi) {
+      return Math.max(lo, Math.min(hi, v));
+    }
+
+    function phaseToCN(phase) {
+      switch (phase) {
+        case 'STILL': return '静止';
+        case 'FLAT': return '平板';
+        case 'LEFT_EDGE': return '左刃';
+        case 'RIGHT_EDGE': return '右刃';
+        case 'EDGE_CHANGE': return '换刃';
+        default: return '未知';
+      }
+    }
+
+    function fmtDeg(v) {
+      return Number.isFinite(v) ? `${v.toFixed(1)}°` : '--';
+    }
+
+    function resizeCanvas(canvas, ctx) {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * window.devicePixelRatio;
+      canvas.height = rect.height * window.devicePixelRatio;
+      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    }
+
+    function parseJsonl(text) {
+      return text
+        .split(/\n+/)
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => JSON.parse(line))
+        .filter(row => Number.isFinite(Number(row.ts)) && (row.side === 'L' || row.side === 'R'));
+    }
+
+    function buildFrames(rows) {
+      const sorted = [...rows].sort((a, b) => a.ts - b.ts);
+      const startTs = sorted[0]?.ts || 0;
+      const latest = { L: null, R: null };
+      const frames = [];
+
+      for (const row of sorted) {
+        latest[row.side] = row;
+        // 每一条新数据都生成一帧，并带上另一块板最近一次数据。
+        frames.push({
+          ts: row.ts,
+          t: (row.ts - startTs) / 1000,
+          L: latest.L,
+          R: latest.R
+        });
+      }
+
+      return frames;
+    }
+
+    function edgeOf(frame, side) {
+      const v = Number(frame?.[side]?.ed);
+      return Number.isFinite(v) ? v : 0;
+    }
+
+    function phaseOf(frame, side) {
+      return frame?.[side]?.ph || 'UNKNOWN';
+    }
+
+    function syncScore(frame) {
+      if (!frame?.L || !frame?.R) return NaN;
+      return clamp(100 - Math.abs(edgeOf(frame, 'L') - edgeOf(frame, 'R')) * 4, 0, 100);
+    }
+
+    function buildEstimatedPath(frames) {
+      const points = [];
+      let x = 0;
+      let y = 0;
+      let heading = Math.PI / 2;
+      let lastT = frames[0]?.t || 0;
+
+      for (const frame of frames) {
+        const dt = clamp(frame.t - lastT, 0, 0.12);
+        lastT = frame.t;
+
+        const left = edgeOf(frame, 'L');
+        const right = edgeOf(frame, 'R');
+        const avgEdge = (left + right) / 2;
+        const sync = Number.isFinite(syncScore(frame)) ? syncScore(frame) / 100 : 0.5;
+
+        // 估算模型：立刃越大，转向越明显；同步越差，速度略降。
+        // 这不是物理定位，只用于动作复盘时给曲线一个直观空间形状。
+        const turnRate = clamp(avgEdge / 38, -1.6, 1.6);
+        const speed = 5.5 * (0.65 + 0.35 * sync);
+        heading += turnRate * dt;
+        x += Math.cos(heading) * speed * dt;
+        y += Math.sin(heading) * speed * dt;
+
+        points.push({
+          x, y,
+          heading,
+          t: frame.t,
+          left,
+          right,
+          sync: sync * 100
+        });
+      }
+
+      return points;
+    }
+
+    function statRange(rows, side, key) {
+      const values = rows
+        .filter(row => row.side === side)
+        .map(row => Number(row[key]))
+        .filter(Number.isFinite);
+      if (!values.length) return '--';
+      return `${Math.min(...values).toFixed(1)}° ~ ${Math.max(...values).toFixed(1)}°`;
+    }
+
+    async function loadDefaultLog() {
+      const response = await fetch(DEFAULT_LOG);
+      if (!response.ok) throw new Error(`无法加载 ${DEFAULT_LOG}`);
+      await loadText(await response.text(), DEFAULT_LOG);
+    }
+
+    async function loadText(text, fileName) {
+      const rows = parseJsonl(text);
+      if (!rows.length) throw new Error('日志中没有可用的 L/R 数据');
+
+      state.rows = rows;
+      state.frames = buildFrames(rows);
+      state.path = buildEstimatedPath(state.frames);
+      state.fileName = fileName;
+      state.duration = state.frames.at(-1).t;
+      state.index = 0;
+      state.playing = false;
+      state.lastClock = 0;
+
+      updateStaticInfo();
+      updateUI();
+      drawAll();
+    }
+
+    function updateStaticInfo() {
+      el.fileName.textContent = state.fileName || '--';
+      el.rowCount.textContent = String(state.rows.length);
+      el.durationText.textContent = `${state.duration.toFixed(1)} s`;
+      el.leftRange.textContent = statRange(state.rows, 'L', 'ed');
+      el.rightRange.textContent = statRange(state.rows, 'R', 'ed');
+      el.playBtn.textContent = '播放';
+    }
+
+    function updateUI() {
+      const frame = state.frames[state.index];
+      if (!frame) return;
+
+      const left = edgeOf(frame, 'L');
+      const right = edgeOf(frame, 'R');
+      const sync = syncScore(frame);
+      const ec = Math.max(Number(frame.L?.ec || 0), Number(frame.R?.ec || 0));
+
+      el.timeText.textContent = `${frame.t.toFixed(2)} / ${state.duration.toFixed(2)} s`;
+      el.scrub.value = state.frames.length > 1 ? Math.round((state.index / (state.frames.length - 1)) * 1000) : 0;
+      el.leftEdge.textContent = fmtDeg(left);
+      el.rightEdge.textContent = fmtDeg(right);
+      el.leftPhase.textContent = phaseToCN(phaseOf(frame, 'L'));
+      el.rightPhase.textContent = phaseToCN(phaseOf(frame, 'R'));
+      el.syncScore.textContent = Number.isFinite(sync) ? sync.toFixed(0) : '--';
+      el.edgeCount.textContent = String(ec);
+      el.playBtn.textContent = state.playing ? '暂停' : '播放';
+    }
+
+    function pathBounds() {
+      if (!state.path.length) return { minX: -1, maxX: 1, minY: -1, maxY: 1 };
+      const xs = state.path.map(p => p.x);
+      const ys = state.path.map(p => p.y);
+      return {
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minY: Math.min(...ys),
+        maxY: Math.max(...ys)
+      };
+    }
+
+    function worldToScreen(point, bounds, w, h) {
+      const pad = 50;
+      const bw = Math.max(1, bounds.maxX - bounds.minX);
+      const bh = Math.max(1, bounds.maxY - bounds.minY);
+      const scale = Math.min((w - pad * 2) / bw, (h - pad * 2) / bh);
+      const cx = (bounds.minX + bounds.maxX) / 2;
+      const cy = (bounds.minY + bounds.maxY) / 2;
+      return {
+        x: w / 2 + (point.x - cx) * scale,
+        y: h / 2 - (point.y - cy) * scale
+      };
+    }
+
+    function drawPath() {
+      const w = pathCanvas.clientWidth;
+      const h = pathCanvas.clientHeight;
+      pathCtx.clearRect(0, 0, w, h);
+
+      pathCtx.fillStyle = '#f7fbfb';
+      pathCtx.fillRect(0, 0, w, h);
+
+      // 轻量网格，方便观察路径变化。
+      pathCtx.strokeStyle = '#dbe8ec';
+      pathCtx.lineWidth = 1;
+      for (let x = 0; x < w; x += 48) {
+        pathCtx.beginPath();
+        pathCtx.moveTo(x, 0);
+        pathCtx.lineTo(x, h);
+        pathCtx.stroke();
+      }
+      for (let y = 0; y < h; y += 48) {
+        pathCtx.beginPath();
+        pathCtx.moveTo(0, y);
+        pathCtx.lineTo(w, y);
+        pathCtx.stroke();
+      }
+
+      if (!state.path.length) {
+        pathCtx.fillStyle = '#5b6f7b';
+        pathCtx.font = '16px Arial';
+        pathCtx.fillText('等待加载日志', 24, 34);
+        return;
+      }
+
+      const bounds = pathBounds();
+      const current = state.path[state.index] || state.path[0];
+
+      pathCtx.lineWidth = 3;
+      pathCtx.strokeStyle = '#9aaeb8';
+      pathCtx.beginPath();
+      state.path.forEach((p, i) => {
+        const s = worldToScreen(p, bounds, w, h);
+        if (i === 0) pathCtx.moveTo(s.x, s.y);
+        else pathCtx.lineTo(s.x, s.y);
+      });
+      pathCtx.stroke();
+
+      pathCtx.strokeStyle = '#2563eb';
+      pathCtx.beginPath();
+      for (let i = 0; i <= state.index; i++) {
+        const s = worldToScreen(state.path[i], bounds, w, h);
+        if (i === 0) pathCtx.moveTo(s.x, s.y);
+        else pathCtx.lineTo(s.x, s.y);
+      }
+      pathCtx.stroke();
+
+      drawSkis(current, bounds, w, h);
+
+      pathCtx.fillStyle = '#16232c';
+      pathCtx.font = '700 18px Arial';
+      pathCtx.fillText('估算滑行轨迹', 22, 32);
+      pathCtx.font = '13px Arial';
+      pathCtx.fillStyle = '#647783';
+      pathCtx.fillText('由左右立刃角生成，不是 GPS 真实路径', 22, 54);
+    }
+
+    function drawSkis(point, bounds, w, h) {
+      const s = worldToScreen(point, bounds, w, h);
+      const angle = -point.heading + Math.PI / 2;
+      const leftEdge = edgeOf(state.frames[state.index], 'L');
+      const rightEdge = edgeOf(state.frames[state.index], 'R');
+
+      pathCtx.save();
+      pathCtx.translate(s.x, s.y);
+      pathCtx.rotate(angle);
+
+      drawSki(-12, leftEdge, '#2563eb');
+      drawSki(12, rightEdge, '#f97316');
+
+      pathCtx.restore();
+
+      pathCtx.fillStyle = '#16232c';
+      pathCtx.font = '12px Arial';
+      pathCtx.fillText(`${point.t.toFixed(1)}s`, s.x + 16, s.y - 14);
+    }
+
+    function drawSki(x, edge, color) {
+      const tilt = clamp(edge / 60, -1, 1);
+      pathCtx.save();
+      pathCtx.translate(x, 0);
+      pathCtx.scale(1 + Math.abs(tilt) * 0.25, 1);
+      pathCtx.fillStyle = color;
+      pathCtx.strokeStyle = '#ffffff';
+      pathCtx.lineWidth = 1.5;
+      pathCtx.beginPath();
+      pathCtx.roundRect(-4, -36, 8, 72, 4);
+      pathCtx.fill();
+      pathCtx.stroke();
+      pathCtx.restore();
+    }
+
+    function drawChart() {
+      const w = chartCanvas.clientWidth;
+      const h = chartCanvas.clientHeight;
+      chartCtx.clearRect(0, 0, w, h);
+
+      chartCtx.fillStyle = '#15222c';
+      chartCtx.fillRect(0, 0, w, h);
+
+      if (!state.frames.length) return;
+
+      chartCtx.strokeStyle = 'rgba(255,255,255,0.12)';
+      chartCtx.lineWidth = 1;
+      chartCtx.beginPath();
+      chartCtx.moveTo(0, h / 2);
+      chartCtx.lineTo(w, h / 2);
+      chartCtx.stroke();
+
+      drawSeries('L', '#60a5fa');
+      drawSeries('R', '#fb923c');
+
+      const cursorX = (state.index / Math.max(1, state.frames.length - 1)) * w;
+      chartCtx.strokeStyle = '#ffffff';
+      chartCtx.lineWidth = 1;
+      chartCtx.beginPath();
+      chartCtx.moveTo(cursorX, 0);
+      chartCtx.lineTo(cursorX, h);
+      chartCtx.stroke();
+
+      chartCtx.fillStyle = '#60a5fa';
+      chartCtx.fillText('左板 ed', 12, 18);
+      chartCtx.fillStyle = '#fb923c';
+      chartCtx.fillText('右板 ed', 86, 18);
+      chartCtx.fillStyle = 'rgba(255,255,255,0.72)';
+      chartCtx.fillText('立刃角曲线', 160, 18);
+    }
+
+    function drawSeries(side, color) {
+      const w = chartCanvas.clientWidth;
+      const h = chartCanvas.clientHeight;
+      const maxAbs = 100;
+
+      chartCtx.strokeStyle = color;
+      chartCtx.lineWidth = 2;
+      chartCtx.beginPath();
+
+      state.frames.forEach((frame, i) => {
+        const x = (i / Math.max(1, state.frames.length - 1)) * w;
+        const y = h / 2 - clamp(edgeOf(frame, side), -maxAbs, maxAbs) / maxAbs * (h * 0.42);
+        if (i === 0) chartCtx.moveTo(x, y);
+        else chartCtx.lineTo(x, y);
+      });
+
+      chartCtx.stroke();
+    }
+
+    function drawAll() {
+      drawPath();
+      drawChart();
+    }
+
+    function tick(clock) {
+      if (!state.lastClock) state.lastClock = clock;
+      const dt = (clock - state.lastClock) / 1000;
+      state.lastClock = clock;
+
+      if (state.playing && state.frames.length) {
+        const currentTime = state.frames[state.index].t + dt * state.speed;
+        while (state.index < state.frames.length - 1 && state.frames[state.index].t < currentTime) {
+          state.index++;
+        }
+        if (state.index >= state.frames.length - 1) {
+          state.playing = false;
+        }
+        updateUI();
+      }
+
+      drawAll();
+      requestAnimationFrame(tick);
+    }
+
+    el.playBtn.addEventListener('click', () => {
+      if (!state.frames.length) return;
+      if (state.index >= state.frames.length - 1) state.index = 0;
+      state.playing = !state.playing;
+      state.lastClock = 0;
+      updateUI();
+    });
+
+    el.resetBtn.addEventListener('click', () => {
+      state.index = 0;
+      state.playing = false;
+      updateUI();
+      drawAll();
+    });
+
+    el.scrub.addEventListener('input', () => {
+      if (!state.frames.length) return;
+      state.index = Math.round((Number(el.scrub.value) / 1000) * (state.frames.length - 1));
+      state.playing = false;
+      updateUI();
+      drawAll();
+    });
+
+    el.speedRange.addEventListener('input', () => {
+      state.speed = Number(el.speedRange.value);
+      el.speedText.textContent = `${state.speed.toFixed(2).replace(/\.00$/, '')}x`;
+    });
+
+    el.loadDefaultBtn.addEventListener('click', async () => {
+      try {
+        await loadDefaultLog();
+      } catch (err) {
+        alert('加载默认日志失败：' + err.message);
+      }
+    });
+
+    el.fileInput.addEventListener('change', async () => {
+      const file = el.fileInput.files?.[0];
+      if (!file) return;
+      await loadText(await file.text(), file.name);
+    });
+
+    el.dropZone.addEventListener('dragover', event => {
+      event.preventDefault();
+      el.dropZone.classList.add('drag');
+    });
+
+    el.dropZone.addEventListener('dragleave', () => {
+      el.dropZone.classList.remove('drag');
+    });
+
+    el.dropZone.addEventListener('drop', async event => {
+      event.preventDefault();
+      el.dropZone.classList.remove('drag');
+      const file = event.dataTransfer.files?.[0];
+      if (!file) return;
+      try {
+        await loadText(await file.text(), file.name);
+      } catch (err) {
+        alert('解析日志失败：' + err.message);
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      resizeCanvas(pathCanvas, pathCtx);
+      resizeCanvas(chartCanvas, chartCtx);
+      drawAll();
+    });
+
+    resizeCanvas(pathCanvas, pathCtx);
+    resizeCanvas(chartCanvas, chartCtx);
+    el.speedText.textContent = `${state.speed.toFixed(1)}x`;
+    requestAnimationFrame(tick);
+
+    loadDefaultLog().catch(() => {
+      drawAll();
+    });
+  </script>
+</body>
+</html>
