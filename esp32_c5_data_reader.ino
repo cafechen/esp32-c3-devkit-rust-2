@@ -5,13 +5,50 @@
 #include <ICM42670P.h>
 #include <NimBLEDevice.h>
 
+// ============================================================
+// 双板滑雪 IMU 节点固件
+// ------------------------------------------------------------
+// 使用方式：
+// 1. 左脚/左雪板烧录前保持 SKI_SENSOR_SIDE 为 "L"。
+// 2. 右脚/右雪板烧录前改成 "R" 再烧录。
+// 3. 上电后保持传感器静止数秒，固件会自动校准陀螺仪零偏。
+// 4. 打开 index.html，分别连接左右设备，然后点击“静止校准”。
+//
+// 重要说明：
+// - 六轴 IMU 没有磁力计，Yaw/航向角会随时间漂移；本程序主要依赖 Roll
+//   判断立刃、换刃和左右同步。
+// - 静止校准会把当前姿态作为“雪板平放零点”，所以校准时两块板要平放、
+//   平行、不要晃动。
+// ============================================================
+
+// ====== 本设备身份：左板 L / 右板 R ======
+// 烧录左板时用 "L"，烧录右板时改为 "R"。
+#define SKI_SENSOR_SIDE "L"
+
+// ====== 安装方向修正 ======
+// 如果网页中雪板向左倾，立刃角却向右变化，把对应符号从 1 改成 -1。
+// 常见做法：先烧录默认值，平放校准后用手向同一方向倾斜两块板，
+// 看网页曲线是否同向；如果某一块反了，就只改那一块的 SKI_EDGE_SIGN。
+#define SKI_EDGE_SIGN 1.0f
+#define SKI_PITCH_SIGN 1.0f
+
+// ====== I2C 引脚 ======
+// 当前仓库原代码使用 GPIO7/GPIO8；如果你的 ESP32-C5 开发板实际是 GPIO8/GPIO9，
+// 请在这里改动，不需要改其它逻辑。
 #define I2C_SDA 7
 #define I2C_SCL 8
 
-const int SAMPLE_INTERVAL = 20;   // 50Hz
+// ====== 采样频率 ======
+// 50Hz 对滑雪动作识别已经够用，BLE 压力也比较小。
+const unsigned long SAMPLE_INTERVAL_MS = 20;
+
+// ====== BLE UART UUID，网页端使用同一组 UUID 连接 ======
+#define SERVICE_UUID      "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 Adafruit_SHTC3 shtc3;
-ICM42670 icm(Wire, 0);  // 0x68
+ICM42670 icm(Wire, 0);  // 0 表示默认 I2C 地址 0x68
 
 bool sht_ok = false;
 bool imu_ok = false;
@@ -20,29 +57,27 @@ bool deviceConnected = false;
 static NimBLECharacteristic* txCharacteristic = nullptr;
 static NimBLECharacteristic* rxCharacteristic = nullptr;
 
-#define SERVICE_UUID      "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHARACTERISTIC_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHARACTERISTIC_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
-
-// ====== IMU换算系数 ======
+// ====== IMU 原始值换算系数 ======
+// 这些系数要和 startAccel/startGyro 设置的量程一致。
 const float ACC_G_PER_LSB = 16.0f / 32768.0f;        // ±16g
-const float GYRO_DPS_PER_LSB = 2000.0f / 32768.0f;   // ±2000 dps
+const float GYRO_DPS_PER_LSB = 2000.0f / 32768.0f;   // ±2000 deg/s
 
-// ====== 步态状态机 ======
-enum GaitState {
-  IDLE = 0,
-  STANCE = 1,
-  LIFT_OFF = 2,
-  SWING = 3,
-  HEEL_STRIKE = 4
-};
+// ====== 滤波和姿态融合参数 ======
+const float LPF_ALPHA_ACC = 0.25f;       // 加速度低通滤波，越大响应越快，越小越稳
+const float LPF_ALPHA_GYRO = 0.25f;      // 陀螺仪低通滤波
+const float COMPLEMENTARY_ALPHA = 0.98f; // 互补滤波：陀螺短期稳定，加速度长期纠偏
+const float GYRO_DEADBAND_DPS = 3.0f;    // 静止附近的小角速度归零，减少积分漂移
 
-GaitState gaitState = IDLE;
-unsigned long stateEnterMs = 0;
-unsigned long lastHeelStrikeMs = 0;
-int stepCount = 0;
+// ====== 滑雪动作识别阈值，可根据实际数据调参 ======
+const float EDGE_ACTIVE_DEG = 8.0f;          // 认为已经明显立刃的角度
+const float EDGE_FLAT_DEG = 4.0f;            // 认为接近平板的角度
+const float EDGE_CHANGE_DEG = 6.0f;          // 换刃区间：接近 0 度且符号准备变化
+const float EDGE_CHANGE_GYRO_DPS = 35.0f;    // Roll 角速度超过该值，说明正在快速换刃
+const float QUIET_GYRO_DPS = 10.0f;          // 判断静止/平稳用的角速度阈值
+const float QUIET_ACC_LOW_G = 0.92f;
+const float QUIET_ACC_HIGH_G = 1.08f;
 
-// ====== 传感器滤波状态 ======
+// ====== 传感器状态 ======
 float ax_g = 0, ay_g = 0, az_g = 0;
 float gx_dps = 0, gy_dps = 0, gz_dps = 0;
 
@@ -52,36 +87,38 @@ float filt_gx = 0, filt_gy = 0, filt_gz = 0;
 float acc_mag = 0;
 float gyro_mag = 0;
 
-// 姿态角
+// 姿态角，单位：弧度。网页端也会显示角度。
 float roll = 0;
 float pitch = 0;
 float yaw = 0;
 
-// 陀螺仪偏置
+// 开机静止校准得到的陀螺仪零偏。
 float gyro_bias_x = 0;
 float gyro_bias_y = 0;
 float gyro_bias_z = 0;
 bool gyro_calibrated = false;
 
-// ====== 可调参数 ======
-const float LPF_ALPHA_ACC = 0.25f;
-const float LPF_ALPHA_GYRO = 0.25f;
-const float COMPLEMENTARY_ALPHA = 0.98f;
+// 静止校准得到的“雪板平放基准姿态”。
+// 后续输出的 edge/pitch/yaw 都是相对这个基准的值。
+float base_roll = 0;
+float base_pitch = 0;
+float base_yaw = 0;
+bool reference_calibrated = false;
+bool reference_calibration_requested = false;
 
-// 静止死区
-const float GYRO_DEADBAND = 5.0f;   // dps
+// 每次检测到换刃就递增，网页端可以用它闪烁事件提示。
+unsigned long edge_change_count = 0;
+int last_edge_sign = 0;
 
-// Idle 判断
-const float GYRO_IDLE_THRESHOLD = 12.0f;  // dps
-const float ACC_IDLE_LOW = 0.93f;         // g
-const float ACC_IDLE_HIGH = 1.07f;        // g
+enum SkiPhase {
+  PHASE_STILL = 0,       // 静止/等待
+  PHASE_FLAT = 1,        // 平板滑行或立刃不足
+  PHASE_LEFT_EDGE = 2,   // 当前 Roll 符号对应一侧刃
+  PHASE_RIGHT_EDGE = 3,  // 当前 Roll 符号对应另一侧刃
+  PHASE_EDGE_CHANGE = 4  // 换刃过程
+};
 
-// 步态阈值（先调高，避免静止误判）
-const float GYRO_LIFT_THRESHOLD = 80.0f;    // dps
-const float GYRO_SWING_THRESHOLD = 120.0f;  // dps
-const float ACC_STRIKE_THRESHOLD = 1.25f;   // g
-const float GYRO_STANCE_THRESHOLD = 30.0f;  // dps
-const float MIN_STEP_INTERVAL_MS = 250.0f;
+SkiPhase skiPhase = PHASE_STILL;
 
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
@@ -97,30 +134,64 @@ class ServerCallbacks : public NimBLEServerCallbacks {
 class RxCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
     std::string value = pCharacteristic->getValue();
-    if (!value.empty()) {
-      Serial.print("BLE RX: ");
-      Serial.println(value.c_str());
+    if (value.empty()) return;
+
+    Serial.print("BLE RX: ");
+    Serial.println(value.c_str());
+
+    // 网页端点击“静止校准”时会发送 CAL。
+    // 这里不直接在回调里读 I2C，避免 BLE 回调阻塞太久；只设置标志位，
+    // 主循环下一轮执行真正的校准。
+    if (value.find("CAL") != std::string::npos || value.find("ZERO") != std::string::npos) {
+      reference_calibration_requested = true;
     }
   }
 };
 
-const char* gaitStateName(GaitState s) {
+float radToDeg(float v) {
+  return v * 180.0f / PI;
+}
+
+float applyDeadband(float v, float th) {
+  return (fabsf(v) < th) ? 0.0f : v;
+}
+
+void formatJsonFloat(char* out, size_t outSize, float value, int decimals) {
+  // JSON 不支持 NaN/Infinity。传感器缺失时输出 null，
+  // 这样网页和日志解析器都能正常处理。
+  if (isnan(value) || isinf(value)) {
+    snprintf(out, outSize, "null");
+    return;
+  }
+
+  char fmt[8];
+  snprintf(fmt, sizeof(fmt), "%%.%df", decimals);
+  snprintf(out, outSize, fmt, value);
+}
+
+int signWithDeadzone(float v, float deadzone) {
+  if (v > deadzone) return 1;
+  if (v < -deadzone) return -1;
+  return 0;
+}
+
+const char* phaseName(SkiPhase s) {
   switch (s) {
-    case IDLE: return "IDLE";
-    case STANCE: return "STANCE";
-    case LIFT_OFF: return "LIFT_OFF";
-    case SWING: return "SWING";
-    case HEEL_STRIKE: return "HEEL_STRIKE";
+    case PHASE_STILL: return "STILL";
+    case PHASE_FLAT: return "FLAT";
+    case PHASE_LEFT_EDGE: return "LEFT_EDGE";
+    case PHASE_RIGHT_EDGE: return "RIGHT_EDGE";
+    case PHASE_EDGE_CHANGE: return "EDGE_CHANGE";
     default: return "UNKNOWN";
   }
 }
 
-float applyDeadband(float v, float th) {
-  return (fabs(v) < th) ? 0.0f : v;
-}
-
 void setupBLE() {
-  NimBLEDevice::init("ESP32C3-GAIT");
+  String deviceName = String("SKI-IMU-") + SKI_SENSOR_SIDE;
+  NimBLEDevice::init(deviceName.c_str());
+  // 提高 ATT MTU，降低较长 JSON 通知被拆包/截断的概率。
+  // Web Bluetooth 端仍然按换行符拼包，所以即使拆包也可以正确解析。
+  NimBLEDevice::setMTU(185);
 
   NimBLEServer* pServer = NimBLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
@@ -142,29 +213,33 @@ void setupBLE() {
 
   NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setName("ESP32C3-GAIT");
+  pAdvertising->setName(deviceName.c_str());
   pAdvertising->start();
 }
 
+bool readImuRaw(inv_imu_sensor_event_t& evt) {
+  return imu_ok && icm.getDataFromRegisters(evt) == 0;
+}
+
 void calibrateGyroBias() {
-  const int DISCARD = 100;   // 丢弃前面的不稳定样本
-  const int N = 400;         // 多取一点平均更稳
+  const int DISCARD = 80;  // 丢掉刚开始的样本，等传感器输出稳定
+  const int N = 300;       // 用 300 个样本平均陀螺零偏
 
   float sx = 0, sy = 0, sz = 0;
   int valid = 0;
 
-  Serial.println("Calibrating gyro... keep device still for 5 seconds");
-  delay(2000);
+  Serial.println("陀螺仪零偏校准：请保持设备静止约 2 秒");
+  delay(500);
 
   for (int i = 0; i < DISCARD; i++) {
     inv_imu_sensor_event_t evt;
-    icm.getDataFromRegisters(evt);
+    readImuRaw(evt);
     delay(5);
   }
 
   for (int i = 0; i < N; i++) {
     inv_imu_sensor_event_t evt;
-    if (icm.getDataFromRegisters(evt) == 0) {
+    if (readImuRaw(evt)) {
       sx += evt.gyro[0] * GYRO_DPS_PER_LSB;
       sy += evt.gyro[1] * GYRO_DPS_PER_LSB;
       sz += evt.gyro[2] * GYRO_DPS_PER_LSB;
@@ -185,67 +260,72 @@ void calibrateGyroBias() {
   Serial.print("gyro_bias_z="); Serial.println(gyro_bias_z, 4);
 }
 
-void updateGaitState(unsigned long nowMs) {
-  bool isIdle = (gyro_mag < GYRO_IDLE_THRESHOLD &&
-                 acc_mag > ACC_IDLE_LOW &&
-                 acc_mag < ACC_IDLE_HIGH);
+void calibrateReferencePose() {
+  // 这个校准用于建立坐标系零点：把“当前平放、平行、静止的雪板姿态”
+  // 作为 edge=0、pitch=0 的参考。
+  const int N = 120;
+  float sr = 0, sp = 0, sy = 0;
+  int valid = 0;
 
-  switch (gaitState) {
-    case IDLE:
-      if (!isIdle && gyro_mag > GYRO_LIFT_THRESHOLD) {
-        gaitState = LIFT_OFF;
-        stateEnterMs = nowMs;
-      } else if (!isIdle) {
-        gaitState = STANCE;
-        stateEnterMs = nowMs;
-      }
-      break;
+  Serial.println("姿态零点校准：请保持雪板/雪鞋平放且静止");
 
-    case STANCE:
-      if (isIdle) {
-        gaitState = IDLE;
-        stateEnterMs = nowMs;
-      } else if (gyro_mag > GYRO_LIFT_THRESHOLD) {
-        gaitState = LIFT_OFF;
-        stateEnterMs = nowMs;
-      }
-      break;
+  for (int i = 0; i < N; i++) {
+    inv_imu_sensor_event_t evt;
+    if (readImuRaw(evt)) {
+      // 静止校准时主要看重力方向。直接从加速度算 Roll/Pitch，
+      // 可以避免校准期间陀螺积分的小漂移影响零点。
+      float ax = evt.accel[0] * ACC_G_PER_LSB;
+      float ay = evt.accel[1] * ACC_G_PER_LSB;
+      float az = evt.accel[2] * ACC_G_PER_LSB;
+      sr += atan2f(ay, az);
+      sp += atan2f(-ax, sqrtf(ay * ay + az * az));
+      sy += yaw;
+      valid++;
+    }
+    delay(10);
+  }
 
-    case LIFT_OFF:
-      if (gyro_mag > GYRO_SWING_THRESHOLD) {
-        gaitState = SWING;
-        stateEnterMs = nowMs;
-      } else if (isIdle) {
-        gaitState = IDLE;
-        stateEnterMs = nowMs;
-      } else if (gyro_mag < GYRO_STANCE_THRESHOLD) {
-        gaitState = STANCE;
-        stateEnterMs = nowMs;
-      }
-      break;
+  if (valid > 0) {
+    base_roll = sr / valid;
+    base_pitch = sp / valid;
+    base_yaw = sy / valid;
+    reference_calibrated = true;
+    edge_change_count = 0;
+    last_edge_sign = 0;
+  }
 
-    case SWING:
-      if (acc_mag > ACC_STRIKE_THRESHOLD &&
-          (nowMs - lastHeelStrikeMs) > MIN_STEP_INTERVAL_MS) {
-        gaitState = HEEL_STRIKE;
-        stateEnterMs = nowMs;
-        lastHeelStrikeMs = nowMs;
-        stepCount++;
-      }
-      break;
+  Serial.print("base_roll_deg="); Serial.println(radToDeg(base_roll), 2);
+  Serial.print("base_pitch_deg="); Serial.println(radToDeg(base_pitch), 2);
+  Serial.print("base_yaw_deg="); Serial.println(radToDeg(base_yaw), 2);
+}
 
-    case HEEL_STRIKE:
-      if (isIdle) {
-        gaitState = IDLE;
-        stateEnterMs = nowMs;
-      } else if (gyro_mag < GYRO_STANCE_THRESHOLD) {
-        gaitState = STANCE;
-        stateEnterMs = nowMs;
-      } else if (nowMs - stateEnterMs > 120) {
-        gaitState = STANCE;
-        stateEnterMs = nowMs;
-      }
-      break;
+void updateSkiPhase(float edgeDeg, float rollRateDps) {
+  bool isQuiet = (gyro_mag < QUIET_GYRO_DPS &&
+                  acc_mag > QUIET_ACC_LOW_G &&
+                  acc_mag < QUIET_ACC_HIGH_G);
+
+  int edgeSign = signWithDeadzone(edgeDeg, EDGE_ACTIVE_DEG);
+  bool nearFlat = fabsf(edgeDeg) < EDGE_FLAT_DEG;
+  bool changingEdge = fabsf(edgeDeg) < EDGE_CHANGE_DEG && fabsf(rollRateDps) > EDGE_CHANGE_GYRO_DPS;
+
+  if (isQuiet && nearFlat) {
+    skiPhase = PHASE_STILL;
+  } else if (changingEdge) {
+    skiPhase = PHASE_EDGE_CHANGE;
+  } else if (edgeSign == 0) {
+    skiPhase = PHASE_FLAT;
+  } else if (edgeSign > 0) {
+    skiPhase = PHASE_LEFT_EDGE;
+  } else {
+    skiPhase = PHASE_RIGHT_EDGE;
+  }
+
+  // 记录换刃次数：从一个明显立刃符号切换到另一个明显立刃符号。
+  if (edgeSign != 0 && last_edge_sign != 0 && edgeSign != last_edge_sign) {
+    edge_change_count++;
+  }
+  if (edgeSign != 0) {
+    last_edge_sign = edgeSign;
   }
 }
 
@@ -253,7 +333,7 @@ void setup() {
   Serial.begin(115200);
 
   unsigned long start = millis();
-  while (!Serial && millis() - start < 5000) {
+  while (!Serial && millis() - start < 2500) {
     delay(10);
   }
 
@@ -267,6 +347,7 @@ void setup() {
 
   int ret = icm.begin();
   if (ret == 0) {
+    // 100Hz 传感器输出，主循环 50Hz 读取。量程选大一些以覆盖滑雪快速换刃。
     icm.startAccel(100, 16);
     icm.startGyro(100, 2000);
     imu_ok = true;
@@ -277,28 +358,33 @@ void setup() {
   }
 
   setupBLE();
-  stateEnterMs = millis();
 
-  Serial.print("sht_ok=");
-  Serial.println(sht_ok ? "true" : "false");
-  Serial.print("imu_ok=");
-  Serial.println(imu_ok ? "true" : "false");
+  Serial.print("device=SKI-IMU-"); Serial.println(SKI_SENSOR_SIDE);
+  Serial.print("sht_ok="); Serial.println(sht_ok ? "true" : "false");
+  Serial.print("imu_ok="); Serial.println(imu_ok ? "true" : "false");
+  Serial.println("可通过 BLE RX 发送 CAL 执行静止姿态零点校准");
 }
 
 void loop() {
   static unsigned long last_sample = 0;
   unsigned long now = millis();
 
-  if (now - last_sample < SAMPLE_INTERVAL) {
+  if (reference_calibration_requested) {
+    reference_calibration_requested = false;
+    calibrateReferencePose();
+  }
+
+  if (now - last_sample < SAMPLE_INTERVAL_MS) {
     delay(1);
     return;
   }
 
   float dt = (now - last_sample) / 1000.0f;
-  if (dt <= 0 || dt > 0.1f) dt = SAMPLE_INTERVAL / 1000.0f;
+  if (dt <= 0 || dt > 0.1f) dt = SAMPLE_INTERVAL_MS / 1000.0f;
   last_sample = now;
 
-  float temp = NAN, hum = NAN;
+  float temp = NAN;
+  float hum = NAN;
 
   if (sht_ok) {
     sensors_event_t hum_event, temp_event;
@@ -310,7 +396,8 @@ void loop() {
 
   if (imu_ok) {
     inv_imu_sensor_event_t evt;
-    if (icm.getDataFromRegisters(evt) == 0) {
+    if (readImuRaw(evt)) {
+      // 原始值换算到工程单位。
       ax_g = evt.accel[0] * ACC_G_PER_LSB;
       ay_g = evt.accel[1] * ACC_G_PER_LSB;
       az_g = evt.accel[2] * ACC_G_PER_LSB;
@@ -319,6 +406,7 @@ void loop() {
       gy_dps = evt.gyro[1] * GYRO_DPS_PER_LSB - gyro_bias_y;
       gz_dps = evt.gyro[2] * GYRO_DPS_PER_LSB - gyro_bias_z;
 
+      // 一阶低通滤波，抑制雪面震动和传感器噪声。
       filt_ax = LPF_ALPHA_ACC * ax_g + (1.0f - LPF_ALPHA_ACC) * filt_ax;
       filt_ay = LPF_ALPHA_ACC * ay_g + (1.0f - LPF_ALPHA_ACC) * filt_ay;
       filt_az = LPF_ALPHA_ACC * az_g + (1.0f - LPF_ALPHA_ACC) * filt_az;
@@ -327,53 +415,91 @@ void loop() {
       filt_gy = LPF_ALPHA_GYRO * gy_dps + (1.0f - LPF_ALPHA_GYRO) * filt_gy;
       filt_gz = LPF_ALPHA_GYRO * gz_dps + (1.0f - LPF_ALPHA_GYRO) * filt_gz;
 
-      // 静止死区
-      filt_gx = applyDeadband(filt_gx, GYRO_DEADBAND);
-      filt_gy = applyDeadband(filt_gy, GYRO_DEADBAND);
-      filt_gz = applyDeadband(filt_gz, GYRO_DEADBAND);
+      filt_gx = applyDeadband(filt_gx, GYRO_DEADBAND_DPS);
+      filt_gy = applyDeadband(filt_gy, GYRO_DEADBAND_DPS);
+      filt_gz = applyDeadband(filt_gz, GYRO_DEADBAND_DPS);
 
       acc_mag = sqrtf(filt_ax * filt_ax + filt_ay * filt_ay + filt_az * filt_az);
       gyro_mag = sqrtf(filt_gx * filt_gx + filt_gy * filt_gy + filt_gz * filt_gz);
 
+      // 加速度推算重力方向，得到长期稳定的 Roll/Pitch。
       float acc_roll = atan2f(filt_ay, filt_az);
       float acc_pitch = atan2f(-filt_ax, sqrtf(filt_ay * filt_ay + filt_az * filt_az));
 
+      // 互补滤波：陀螺仪积分负责短时间动态，加速度负责慢慢纠正漂移。
       roll = COMPLEMENTARY_ALPHA * (roll + filt_gx * DEG_TO_RAD * dt)
            + (1.0f - COMPLEMENTARY_ALPHA) * acc_roll;
 
       pitch = COMPLEMENTARY_ALPHA * (pitch + filt_gy * DEG_TO_RAD * dt)
             + (1.0f - COMPLEMENTARY_ALPHA) * acc_pitch;
 
+      // 六轴没有绝对航向，Yaw 只能短期参考，所以做一点泄露衰减。
       yaw += filt_gz * DEG_TO_RAD * dt;
       yaw *= 0.9995f;
-
-      updateGaitState(now);
     }
   }
 
- char json[256];
-snprintf(
-  json, sizeof(json),
-  "{\"t\":%.2f,\"tp\":%.1f,\"h\":%.1f,"
-  "\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,"
-  "\"gx\":%.1f,\"gy\":%.1f,\"gz\":%.1f,"
-  "\"am\":%.3f,\"gm\":%.1f,"
-  "\"r\":%.2f,\"p\":%.2f,"
-  "\"s\":\"%s\",\"n\":%d}\n",
-  now / 1000.0,
-  temp, hum,
-  filt_ax, filt_ay, filt_az,
-  filt_gx, filt_gy, filt_gz,
-  acc_mag, gyro_mag,
-  roll, pitch,
-  gaitStateName(gaitState),
-  stepCount
-);
+  float edgeDeg = SKI_EDGE_SIGN * radToDeg(roll - base_roll);
+  float pitchDeg = SKI_PITCH_SIGN * radToDeg(pitch - base_pitch);
+  float yawDeg = radToDeg(yaw - base_yaw);
+  float rollRateDps = filt_gx;
 
-  Serial.println(json);
+  updateSkiPhase(edgeDeg, rollRateDps);
+
+  // 串口输出完整 JSON，方便后续离线分析和调参。
+  // BLE 另发一份更短的 JSON，尽量控制在常见 Web Bluetooth 单次通知长度内。
+  char serialJson[384];
+  char bleJson[192];
+  char tempJson[16];
+  char humJson[16];
+
+  formatJsonFloat(tempJson, sizeof(tempJson), temp, 1);
+  formatJsonFloat(humJson, sizeof(humJson), hum, 1);
+
+  snprintf(
+    serialJson, sizeof(serialJson),
+    "{\"id\":\"%s\",\"t\":%.2f,\"tp\":%s,\"h\":%s,"
+    "\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,"
+    "\"gx\":%.1f,\"gy\":%.1f,\"gz\":%.1f,"
+    "\"am\":%.3f,\"gm\":%.1f,"
+    "\"r\":%.3f,\"p\":%.3f,\"y\":%.3f,"
+    "\"ed\":%.1f,\"pd\":%.1f,\"yd\":%.1f,"
+    "\"rr\":%.1f,\"ph\":\"%s\",\"ec\":%lu,"
+    "\"cal\":%d,\"imu\":%d}\n",
+    SKI_SENSOR_SIDE,
+    now / 1000.0f,
+    tempJson, humJson,
+    filt_ax, filt_ay, filt_az,
+    filt_gx, filt_gy, filt_gz,
+    acc_mag, gyro_mag,
+    roll, pitch, yaw,
+    edgeDeg, pitchDeg, yawDeg,
+    rollRateDps,
+    phaseName(skiPhase),
+    edge_change_count,
+    reference_calibrated ? 1 : 0,
+    imu_ok ? 1 : 0
+  );
+
+  snprintf(
+    bleJson, sizeof(bleJson),
+    "{\"id\":\"%s\",\"t\":%.1f,\"tp\":%s,"
+    "\"ed\":%.1f,\"pd\":%.1f,\"rr\":%.1f,\"gm\":%.1f,"
+    "\"ph\":\"%s\",\"ec\":%lu,\"cal\":%d,\"imu\":%d}\n",
+    SKI_SENSOR_SIDE,
+    now / 1000.0f,
+    tempJson,
+    edgeDeg, pitchDeg, rollRateDps, gyro_mag,
+    phaseName(skiPhase),
+    edge_change_count,
+    reference_calibrated ? 1 : 0,
+    imu_ok ? 1 : 0
+  );
+
+  Serial.println(serialJson);
 
   if (deviceConnected && txCharacteristic) {
-    txCharacteristic->setValue((uint8_t*)json, strlen(json));
+    txCharacteristic->setValue((uint8_t*)bleJson, strlen(bleJson));
     txCharacteristic->notify();
   }
 }

@@ -3,18 +3,55 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ESP32 步态识别</title>
+  <title>双板滑雪 IMU 训练面板</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
     html, body {
       width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: #0f172a;
-      color: #fff;
-      font-family: Arial, sans-serif;
+      min-height: 100%;
+      background: #101820;
+      color: #eef5f2;
+      font-family: Arial, "Microsoft YaHei", sans-serif;
     }
-    #app { width: 100vw; height: 100vh; position: relative; }
+
+    body { overflow-x: hidden; }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #2f80ed;
+      color: #ffffff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.secondary { background: #31424f; }
+    button.warn { background: #d97706; }
+    button.danger { background: #b91c1c; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
+    }
+
+    #sidePanel {
+      min-height: 100vh;
+      padding: 18px;
+      background: #17232d;
+      border-right: 1px solid rgba(255,255,255,0.08);
+      overflow-y: auto;
+    }
+
+    #stage {
+      position: relative;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
     #threeCanvas {
       position: absolute;
       inset: 0;
@@ -22,504 +59,743 @@
       height: 100%;
       display: block;
     }
-    #overlay {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-    }
-    #panel {
-      position: absolute;
-      left: 16px;
-      top: 16px;
-      width: 390px;
-      background: rgba(0,0,0,0.60);
-      border-radius: 16px;
-      padding: 16px;
-      backdrop-filter: blur(10px);
-      pointer-events: auto;
-      z-index: 10;
-    }
-    #panel h2 {
-      color: #38bdf8;
-      margin-bottom: 12px;
-      font-size: 20px;
-    }
-    #connectBtn, .smallBtn {
-      border: 0;
-      border-radius: 10px;
-      font-weight: bold;
-      font-size: 15px;
-    }
-    #connectBtn {
-      width: 100%;
-      padding: 12px;
-      background: #22c55e;
-      color: #08110b;
-      margin-bottom: 10px;
-    }
-    #connectBtn.disconnect {
-      background: #f59e0b;
-      color: #1f1300;
-    }
-    .btnRow {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 10px;
-    }
-    .smallBtn {
-      flex: 1;
-      padding: 10px;
-      background: #334155;
-      color: white;
-    }
-    #status {
-      font-size: 13px;
-      color: #cbd5e1;
-      margin-bottom: 12px;
-      min-height: 18px;
-      line-height: 1.4;
-    }
-    .badge {
-      display: inline-block;
-      padding: 6px 10px;
-      border-radius: 999px;
-      font-weight: bold;
-      margin-bottom: 12px;
-    }
-    .idle { background: #475569; color: #f8fafc; }
-    .stance { background: #334155; color: #e2e8f0; }
-    .lift { background: #2563eb; color: white; }
-    .swing { background: #16a34a; color: white; }
-    .strike { background: #dc2626; color: white; }
 
-    .row {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      margin: 8px 0;
-    }
-    .label { color: #94a3b8; }
-    .value {
-      color: #f8fafc;
-      font-weight: bold;
-      text-align: right;
-      word-break: break-word;
-      max-width: 220px;
-    }
-
-    #eventFlash {
-      position: absolute;
-      right: 20px;
-      top: 20px;
-      padding: 12px 18px;
-      border-radius: 12px;
+    h1 {
       font-size: 24px;
-      font-weight: bold;
-      background: rgba(220, 38, 38, 0.92);
-      color: #fff;
-      opacity: 0;
-      transform: scale(0.9);
-      transition: all 0.18s ease;
-      pointer-events: none;
-      z-index: 20;
+      line-height: 1.2;
+      margin-bottom: 14px;
+      letter-spacing: 0;
     }
-    #eventFlash.show {
-      opacity: 1;
-      transform: scale(1);
+
+    h2 {
+      font-size: 15px;
+      color: #b7c7c9;
+      margin: 18px 0 8px;
+      letter-spacing: 0;
     }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .wide { grid-column: 1 / -1; }
+
+    .statusLine {
+      min-height: 20px;
+      margin-top: 10px;
+      color: #b7c7c9;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .metricGrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .card {
+      border-radius: 8px;
+      background: rgba(255,255,255,0.055);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 10px;
+      min-height: 76px;
+    }
+
+    .cardTitle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: #b7c7c9;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #5b6872;
+      flex: 0 0 auto;
+    }
+
+    .dot.on { background: #22c55e; }
+
+    .value {
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.15;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .smallValue {
+      margin-top: 4px;
+      color: #b7c7c9;
+      font-size: 12px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      border-radius: 8px;
+      padding: 6px 10px;
+      background: #31424f;
+      color: #f8fafc;
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .badge.good { background: #15803d; }
+    .badge.warn { background: #b45309; }
+    .badge.bad { background: #b91c1c; }
+    .badge.info { background: #2563eb; }
+
+    #insight {
+      display: grid;
+      gap: 8px;
+    }
+
+    .feedback {
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(255,255,255,0.055);
+      border-left: 4px solid #5b6872;
+      color: #dbe7e5;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .feedback.good { border-left-color: #22c55e; }
+    .feedback.warn { border-left-color: #f59e0b; }
+    .feedback.bad { border-left-color: #ef4444; }
+    .feedback.info { border-left-color: #60a5fa; }
 
     #chartWrap {
       position: absolute;
-      left: 16px;
-      right: 16px;
-      bottom: 16px;
-      height: 180px;
-      background: rgba(0,0,0,0.45);
-      border-radius: 16px;
+      left: 18px;
+      right: 18px;
+      bottom: 18px;
+      height: 190px;
+      border-radius: 8px;
+      background: rgba(10,16,20,0.72);
+      border: 1px solid rgba(255,255,255,0.08);
       padding: 10px;
-      pointer-events: none;
     }
+
     #chartCanvas {
       width: 100%;
       height: 100%;
       display: block;
     }
-    .hint {
-      margin-top: 10px;
-      font-size: 12px;
-      color: #94a3b8;
-      line-height: 1.45;
+
+    #eventFlash {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      min-width: 148px;
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: rgba(37,99,235,0.92);
+      color: #ffffff;
+      font-size: 22px;
+      font-weight: 900;
+      opacity: 0;
+      transform: translateY(-8px);
+      transition: opacity 0.16s ease, transform 0.16s ease;
+      pointer-events: none;
+    }
+
+    #eventFlash.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 900px) {
+      #app { grid-template-columns: 1fr; }
+      #sidePanel { min-height: auto; border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+      #stage { min-height: 520px; }
+      #chartWrap { left: 10px; right: 10px; bottom: 10px; height: 150px; }
     }
   </style>
 </head>
 <body>
   <div id="app">
-    <canvas id="threeCanvas"></canvas>
+    <aside id="sidePanel">
+      <h1>双板滑雪 IMU</h1>
 
-    <div id="overlay">
-      <div id="panel">
-        <h2>ESP32 步态识别</h2>
+      <div class="controls">
+        <button id="connectLeftBtn">连接左板</button>
+        <button id="connectRightBtn">连接右板</button>
+        <button id="calibrateBtn" class="warn wide">静止校准</button>
+        <button id="startLogBtn" class="secondary">开始记录</button>
+        <button id="stopLogBtn" class="secondary">停止记录</button>
+        <button id="downloadLogBtn" class="secondary wide">导出日志</button>
+      </div>
 
-        <button id="connectBtn">连接 BLE 设备</button>
+      <div id="status" class="statusLine">未连接。请先分别连接左右板，再让双板平放并点击静止校准。</div>
 
-        <div class="btnRow">
-          <button id="startLogBtn" class="smallBtn">开始记录</button>
-          <button id="stopLogBtn" class="smallBtn">停止记录</button>
-          <button id="downloadLogBtn" class="smallBtn">导出日志</button>
+      <h2>核心指标</h2>
+      <div class="metricGrid">
+        <div class="card">
+          <div class="cardTitle">同步分 <span id="syncBadge" class="badge info">--</span></div>
+          <div class="value" id="syncScore">--</div>
+          <div class="smallValue">左右立刃角差越小越好</div>
         </div>
-
-        <div id="status">未连接</div>
-        <div id="gaitBadge" class="badge idle">静止</div>
-
-        <div class="row"><div class="label">步数</div><div class="value" id="steps">0</div></div>
-        <div class="row"><div class="label">时间</div><div class="value" id="time">--</div></div>
-        <div class="row"><div class="label">温度</div><div class="value" id="temp">--</div></div>
-        <div class="row"><div class="label">湿度</div><div class="value" id="humidity">--</div></div>
-        <div class="row"><div class="label">ax, ay, az</div><div class="value" id="accel">--</div></div>
-        <div class="row"><div class="label">gx, gy, gz</div><div class="value" id="gyro">--</div></div>
-        <div class="row"><div class="label">加速度模长</div><div class="value" id="accMag">--</div></div>
-        <div class="row"><div class="label">角速度模长</div><div class="value" id="gyroMag">--</div></div>
-        <div class="row"><div class="label">俯仰 / 横滚</div><div class="value" id="angles">--</div></div>
-        <div class="row"><div class="label">最近原始包</div><div class="value" id="rawText">--</div></div>
-
-        <div class="hint">
-          规则法说明：<br />
-          静止：角速度低且加速度接近 1g<br />
-          抬脚：角速度升高<br />
-          摆动：持续高角速度<br />
-          落脚：出现冲击峰
+        <div class="card">
+          <div class="cardTitle">当前阶段 <span id="phaseBadge" class="badge">--</span></div>
+          <div class="value" id="globalPhase">--</div>
+          <div class="smallValue" id="turnText">等待数据</div>
+        </div>
+        <div class="card">
+          <div class="cardTitle">平均立刃角</div>
+          <div class="value" id="avgEdge">--</div>
+          <div class="smallValue">左右绝对值平均</div>
+        </div>
+        <div class="card">
+          <div class="cardTitle">换刃次数</div>
+          <div class="value" id="edgeChanges">--</div>
+          <div class="smallValue">来自左右节点计数的最大值</div>
         </div>
       </div>
 
-      <div id="eventFlash">落脚</div>
+      <h2>左板</h2>
+      <div class="metricGrid">
+        <div class="card">
+          <div class="cardTitle">连接 <span id="leftDot" class="dot"></span></div>
+          <div class="value" id="leftEdge">--</div>
+          <div class="smallValue" id="leftMeta">未连接</div>
+        </div>
+        <div class="card">
+          <div class="cardTitle">阶段</div>
+          <div class="value" id="leftPhase">--</div>
+          <div class="smallValue" id="leftRaw">--</div>
+        </div>
+      </div>
 
+      <h2>右板</h2>
+      <div class="metricGrid">
+        <div class="card">
+          <div class="cardTitle">连接 <span id="rightDot" class="dot"></span></div>
+          <div class="value" id="rightEdge">--</div>
+          <div class="smallValue" id="rightMeta">未连接</div>
+        </div>
+        <div class="card">
+          <div class="cardTitle">阶段</div>
+          <div class="value" id="rightPhase">--</div>
+          <div class="smallValue" id="rightRaw">--</div>
+        </div>
+      </div>
+
+      <h2>动作反馈</h2>
+      <div id="insight"></div>
+    </aside>
+
+    <main id="stage">
+      <canvas id="threeCanvas"></canvas>
+      <div id="eventFlash">换刃</div>
       <div id="chartWrap">
         <canvas id="chartCanvas"></canvas>
       </div>
-    </div>
+    </main>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
+    // ============================================================
+    // Web Bluetooth UUID：和 Arduino 固件中的 BLE UART UUID 保持一致
+    // ============================================================
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+    const RX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
     const TX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
-    const state = {
-      connected: false,
-      device: null,
-      server: null,
-      service: null,
-      txChar: null,
-      time: 0,
-      temp: 0,
-      humidity: 0,
-      ax: 0, ay: 0, az: 0,
-      gx: 0, gy: 0, gz: 0,
-      acc_mag: 0,
-      gyro_mag: 0,
-      roll: 0,
-      pitch: 0,
-      gait_state: 'IDLE',
-      gait_state_cn: '静止',
-      steps: 0,
-      chartAcc: [],
-      chartGyro: [],
-      maxPoints: 180
+    const MAX_POINTS = 240;
+
+    // 每块板各维护一份连接对象和最新数据。
+    const boards = {
+      L: createBoardState('L'),
+      R: createBoardState('R')
     };
 
-    let bleBuffer = '';
-    let logRecords = [];
-    let logging = false;
+    const appState = {
+      logging: false,
+      logRecords: [],
+      chartLeft: [],
+      chartRight: [],
+      lastEventCount: 0
+    };
 
-    const connectBtn = document.getElementById('connectBtn');
-    const startLogBtn = document.getElementById('startLogBtn');
-    const stopLogBtn = document.getElementById('stopLogBtn');
-    const downloadLogBtn = document.getElementById('downloadLogBtn');
-
-    const statusEl = document.getElementById('status');
-    const gaitBadge = document.getElementById('gaitBadge');
-    const stepsEl = document.getElementById('steps');
-    const timeEl = document.getElementById('time');
-    const tempEl = document.getElementById('temp');
-    const humidityEl = document.getElementById('humidity');
-    const accelEl = document.getElementById('accel');
-    const gyroEl = document.getElementById('gyro');
-    const accMagEl = document.getElementById('accMag');
-    const gyroMagEl = document.getElementById('gyroMag');
-    const anglesEl = document.getElementById('angles');
-    const rawTextEl = document.getElementById('rawText');
-    const eventFlash = document.getElementById('eventFlash');
-
-    function deg(rad) {
-      return rad * 180 / Math.PI;
+    function createBoardState(id) {
+      return {
+        id,
+        connected: false,
+        device: null,
+        server: null,
+        service: null,
+        txChar: null,
+        rxChar: null,
+        buffer: '',
+        lastPacketText: '',
+        lastSeen: 0,
+        data: {
+          t: NaN,
+          tp: NaN,
+          h: NaN,
+          ed: NaN,
+          pd: NaN,
+          yd: NaN,
+          rr: NaN,
+          gm: NaN,
+          am: NaN,
+          ph: 'UNKNOWN',
+          ec: 0,
+          cal: 0,
+          imu: 0
+        }
+      };
     }
 
-    function gaitStateToCN(s) {
-      switch (s) {
-        case 'IDLE': return '静止';
-        case 'STANCE': return '支撑';
-        case 'LIFT_OFF': return '抬脚';
-        case 'SWING': return '摆动';
-        case 'HEEL_STRIKE': return '落脚';
+    const el = {
+      connectLeftBtn: document.getElementById('connectLeftBtn'),
+      connectRightBtn: document.getElementById('connectRightBtn'),
+      calibrateBtn: document.getElementById('calibrateBtn'),
+      startLogBtn: document.getElementById('startLogBtn'),
+      stopLogBtn: document.getElementById('stopLogBtn'),
+      downloadLogBtn: document.getElementById('downloadLogBtn'),
+      status: document.getElementById('status'),
+      syncScore: document.getElementById('syncScore'),
+      syncBadge: document.getElementById('syncBadge'),
+      phaseBadge: document.getElementById('phaseBadge'),
+      globalPhase: document.getElementById('globalPhase'),
+      turnText: document.getElementById('turnText'),
+      avgEdge: document.getElementById('avgEdge'),
+      edgeChanges: document.getElementById('edgeChanges'),
+      leftDot: document.getElementById('leftDot'),
+      rightDot: document.getElementById('rightDot'),
+      leftEdge: document.getElementById('leftEdge'),
+      rightEdge: document.getElementById('rightEdge'),
+      leftMeta: document.getElementById('leftMeta'),
+      rightMeta: document.getElementById('rightMeta'),
+      leftPhase: document.getElementById('leftPhase'),
+      rightPhase: document.getElementById('rightPhase'),
+      leftRaw: document.getElementById('leftRaw'),
+      rightRaw: document.getElementById('rightRaw'),
+      insight: document.getElementById('insight'),
+      eventFlash: document.getElementById('eventFlash')
+    };
+
+    function phaseToCN(phase) {
+      switch (phase) {
+        case 'STILL': return '静止';
+        case 'FLAT': return '平板';
+        case 'LEFT_EDGE': return '左刃';
+        case 'RIGHT_EDGE': return '右刃';
+        case 'EDGE_CHANGE': return '换刃';
         default: return '未知';
       }
     }
 
-    function updateBadge() {
-      gaitBadge.textContent = state.gait_state_cn;
-      gaitBadge.className = 'badge';
-      if (state.gait_state === 'IDLE') gaitBadge.classList.add('idle');
-      if (state.gait_state === 'STANCE') gaitBadge.classList.add('stance');
-      if (state.gait_state === 'LIFT_OFF') gaitBadge.classList.add('lift');
-      if (state.gait_state === 'SWING') gaitBadge.classList.add('swing');
-      if (state.gait_state === 'HEEL_STRIKE') gaitBadge.classList.add('strike');
+    function fmtDeg(v) {
+      return Number.isFinite(v) ? `${v.toFixed(1)}°` : '--';
+    }
+
+    function fmtSmall(v, unit = '') {
+      return Number.isFinite(v) ? `${v.toFixed(1)}${unit}` : '--';
+    }
+
+    function pushPoint(arr, v) {
+      arr.push(v);
+      if (arr.length > MAX_POINTS) arr.shift();
+    }
+
+    function getConnectedBoards() {
+      return Object.values(boards).filter(b => b.connected);
+    }
+
+    function bothHaveData() {
+      return Number.isFinite(boards.L.data.ed) && Number.isFinite(boards.R.data.ed);
+    }
+
+    function computeMetrics() {
+      const l = boards.L.data;
+      const r = boards.R.data;
+      const hasBoth = bothHaveData();
+
+      if (!hasBoth) {
+        return {
+          hasBoth,
+          sync: NaN,
+          avgEdge: NaN,
+          edgeDiff: NaN,
+          globalPhase: '等待',
+          turnText: '需要左右板都连接并收到数据',
+          edgeChanges: Math.max(l.ec || 0, r.ec || 0),
+          feedback: [{ level: 'info', text: '先连接左右两个节点；双板平放、平行、静止后点击“静止校准”。' }]
+        };
+      }
+
+      const leftEdge = l.ed;
+      const rightEdge = r.ed;
+      const edgeDiff = Math.abs(leftEdge - rightEdge);
+      const absAvg = (Math.abs(leftEdge) + Math.abs(rightEdge)) / 2;
+      const sync = Math.max(0, Math.min(100, 100 - edgeDiff * 4));
+      const edgeChanges = Math.max(l.ec || 0, r.ec || 0);
+
+      let globalPhase = '滑行';
+      if (l.ph === 'EDGE_CHANGE' || r.ph === 'EDGE_CHANGE') globalPhase = '换刃';
+      else if (Math.abs(leftEdge) < 4 && Math.abs(rightEdge) < 4) globalPhase = '平板';
+      else if (Math.sign(leftEdge) === Math.sign(rightEdge)) globalPhase = leftEdge > 0 ? '同向立刃 +' : '同向立刃 -';
+      else globalPhase = '板角分离';
+
+      let turnText = '双板立刃方向一致';
+      if (globalPhase === '换刃') turnText = 'Roll 接近零且角速度较高';
+      if (globalPhase === '平板') turnText = '立刃不足或直滑';
+      if (globalPhase === '板角分离') turnText = '左右板 Roll 符号相反，可能出现八字/内外板不同步';
+
+      const feedback = [];
+      if (sync >= 82) feedback.push({ level: 'good', text: '左右板立刃同步较好，双板平行感不错。' });
+      else if (sync >= 60) feedback.push({ level: 'warn', text: '左右板立刃角有差异，注意两脚同时换刃，避免一只脚拖后。' });
+      else feedback.push({ level: 'bad', text: '左右板角度差较大，可能有八字、板尾外甩或重心没有压到外板。' });
+
+      if (absAvg < 5) feedback.push({ level: 'warn', text: '平均立刃角偏小，当前更像平板滑行；练习时可以逐步增加脚踝主动立刃。' });
+      if (Math.abs((l.rr || 0) - (r.rr || 0)) > 55) feedback.push({ level: 'warn', text: '左右 Roll 角速度差较大，换刃动作可能不同步。' });
+      if (l.cal !== 1 || r.cal !== 1) feedback.push({ level: 'info', text: '至少有一个节点还没有完成静止校准，角度只能作为临时参考。' });
+
+      return { hasBoth, sync, avgEdge: absAvg, edgeDiff, globalPhase, turnText, edgeChanges, feedback };
+    }
+
+    function badgeClass(score) {
+      if (!Number.isFinite(score)) return 'badge info';
+      if (score >= 82) return 'badge good';
+      if (score >= 60) return 'badge warn';
+      return 'badge bad';
     }
 
     function flashEvent(text) {
-      eventFlash.textContent = text;
-      eventFlash.classList.add('show');
-      clearTimeout(flashEvent._timer);
-      flashEvent._timer = setTimeout(() => eventFlash.classList.remove('show'), 220);
+      el.eventFlash.textContent = text;
+      el.eventFlash.classList.add('show');
+      clearTimeout(flashEvent.timer);
+      flashEvent.timer = setTimeout(() => el.eventFlash.classList.remove('show'), 260);
     }
 
-    function updateInfo() {
-      statusEl.textContent = state.connected
-        ? `已连接，正在接收 BLE 数据${logging ? '（记录中）' : ''}`
+    function updateUI() {
+      const l = boards.L.data;
+      const r = boards.R.data;
+      const metrics = computeMetrics();
+      const connected = getConnectedBoards().map(b => b.id).join(', ') || '无';
+
+      el.connectLeftBtn.textContent = boards.L.connected ? '断开左板' : '连接左板';
+      el.connectRightBtn.textContent = boards.R.connected ? '断开右板' : '连接右板';
+      el.connectLeftBtn.className = boards.L.connected ? 'danger' : '';
+      el.connectRightBtn.className = boards.R.connected ? 'danger' : '';
+      el.leftDot.className = boards.L.connected ? 'dot on' : 'dot';
+      el.rightDot.className = boards.R.connected ? 'dot on' : 'dot';
+
+      el.status.textContent = `已连接：${connected}${appState.logging ? '，记录中' : ''}`;
+
+      el.syncScore.textContent = Number.isFinite(metrics.sync) ? `${metrics.sync.toFixed(0)}` : '--';
+      el.syncBadge.textContent = Number.isFinite(metrics.sync) ? (metrics.sync >= 82 ? '好' : metrics.sync >= 60 ? '一般' : '偏差') : '--';
+      el.syncBadge.className = badgeClass(metrics.sync);
+
+      el.globalPhase.textContent = metrics.globalPhase;
+      el.phaseBadge.textContent = metrics.globalPhase;
+      el.phaseBadge.className = metrics.globalPhase === '板角分离' ? 'badge bad' : metrics.globalPhase === '换刃' ? 'badge info' : 'badge';
+      el.turnText.textContent = metrics.turnText;
+      el.avgEdge.textContent = fmtDeg(metrics.avgEdge);
+      el.edgeChanges.textContent = String(metrics.edgeChanges || 0);
+
+      el.leftEdge.textContent = fmtDeg(l.ed);
+      el.rightEdge.textContent = fmtDeg(r.ed);
+      el.leftPhase.textContent = phaseToCN(l.ph);
+      el.rightPhase.textContent = phaseToCN(r.ph);
+
+      el.leftMeta.textContent = boards.L.connected
+        ? `温度 ${fmtSmall(l.tp, '°C')} · 角速度 ${fmtSmall(l.rr, '°/s')} · ${l.cal ? '已校准' : '未校准'}`
+        : '未连接';
+      el.rightMeta.textContent = boards.R.connected
+        ? `温度 ${fmtSmall(r.tp, '°C')} · 角速度 ${fmtSmall(r.rr, '°/s')} · ${r.cal ? '已校准' : '未校准'}`
         : '未连接';
 
-      connectBtn.textContent = state.connected ? '断开连接' : '连接 BLE 设备';
-      connectBtn.className = state.connected ? 'disconnect' : '';
-      updateBadge();
+      el.leftRaw.textContent = boards.L.lastPacketText || '--';
+      el.rightRaw.textContent = boards.R.lastPacketText || '--';
 
-      stepsEl.textContent = String(state.steps);
-      timeEl.textContent = Number.isFinite(state.time) ? state.time.toFixed(2) : '--';
-      tempEl.textContent = Number.isFinite(state.temp) ? `${state.temp.toFixed(1)} °C` : '--';
-      humidityEl.textContent = Number.isFinite(state.humidity) ? `${state.humidity.toFixed(1)} %` : '--';
-      accelEl.textContent = `${state.ax.toFixed(2)}, ${state.ay.toFixed(2)}, ${state.az.toFixed(2)}`;
-      gyroEl.textContent = `${state.gx.toFixed(1)}, ${state.gy.toFixed(1)}, ${state.gz.toFixed(1)}`;
-      accMagEl.textContent = state.acc_mag.toFixed(3);
-      gyroMagEl.textContent = state.gyro_mag.toFixed(1);
-      anglesEl.textContent = `${deg(state.pitch).toFixed(1)}° / ${deg(state.roll).toFixed(1)}°`;
+      el.insight.innerHTML = '';
+      metrics.feedback.slice(0, 4).forEach(item => {
+        const div = document.createElement('div');
+        div.className = `feedback ${item.level}`;
+        div.textContent = item.text;
+        el.insight.appendChild(div);
+      });
+
+      if (metrics.edgeChanges > appState.lastEventCount) {
+        appState.lastEventCount = metrics.edgeChanges;
+        flashEvent('换刃');
+      }
     }
 
-    function pushChartValue(arr, v) {
-      arr.push(v);
-      if (arr.length > state.maxPoints) arr.shift();
-    }
+    function applyBoardData(board, data) {
+      // 固件会带 id 字段；如果烧录时忘了改左右，也允许网页连接按钮强制归入当前板。
+      board.data = { ...board.data, ...data };
+      board.lastSeen = Date.now();
+      board.lastPacketText = JSON.stringify(data).slice(0, 86);
 
-    function applyData(data) {
-      if (data.t !== undefined) state.time = Number(data.t);
-      if (data.tp !== undefined) state.temp = Number(data.tp);
-      if (data.h !== undefined) state.humidity = Number(data.h);
-
-      if (data.ax !== undefined) state.ax = Number(data.ax);
-      if (data.ay !== undefined) state.ay = Number(data.ay);
-      if (data.az !== undefined) state.az = Number(data.az);
-
-      if (data.gx !== undefined) state.gx = Number(data.gx);
-      if (data.gy !== undefined) state.gy = Number(data.gy);
-      if (data.gz !== undefined) state.gz = Number(data.gz);
-
-      if (data.am !== undefined) {
-        state.acc_mag = Number(data.am);
-        pushChartValue(state.chartAcc, state.acc_mag);
+      if (Number.isFinite(Number(board.data.ed))) {
+        pushPoint(board.id === 'L' ? appState.chartLeft : appState.chartRight, Number(board.data.ed));
       }
 
-      if (data.gm !== undefined) {
-        state.gyro_mag = Number(data.gm);
-        pushChartValue(state.chartGyro, state.gyro_mag);
-      }
-
-      if (data.r !== undefined) state.roll = Number(data.r);
-      if (data.p !== undefined) state.pitch = Number(data.p);
-
-      if (data.n !== undefined) state.steps = Number(data.n);
-
-      if (data.s !== undefined) {
-        const prev = state.gait_state;
-        state.gait_state = String(data.s);
-        state.gait_state_cn = gaitStateToCN(state.gait_state);
-
-        if (prev !== state.gait_state) {
-          if (state.gait_state === 'HEEL_STRIKE') flashEvent('落脚');
-          if (state.gait_state === 'LIFT_OFF') flashEvent('抬脚');
-          if (state.gait_state === 'SWING') flashEvent('摆动');
-        }
-      }
-
-      if (logging) {
-        logRecords.push({
+      if (appState.logging) {
+        appState.logRecords.push({
           ts: Date.now(),
+          side: board.id,
           ...data
         });
       }
 
-      updateInfo();
+      updateUI();
     }
 
-    function parseLine(line) {
-      try {
-        const data = JSON.parse(line);
-        applyData(data);
-      } catch (e) {
-        console.log('JSON parse failed:', line);
-      }
-    }
-
-    function handleNotify(event) {
+    function handleNotify(board, event) {
       const text = new TextDecoder().decode(event.target.value);
-      rawTextEl.textContent = text.slice(0, 120).replace(/\n/g, '\\n');
-
-      bleBuffer += text;
+      board.buffer += text;
 
       let idx;
-      while ((idx = bleBuffer.indexOf('\n')) >= 0) {
-        const line = bleBuffer.slice(0, idx).trim();
-        bleBuffer = bleBuffer.slice(idx + 1);
-        if (line) parseLine(line);
+      while ((idx = board.buffer.indexOf('\n')) >= 0) {
+        const line = board.buffer.slice(0, idx).trim();
+        board.buffer = board.buffer.slice(idx + 1);
+        if (!line) continue;
+
+        try {
+          applyBoardData(board, JSON.parse(line));
+        } catch (err) {
+          console.log('JSON parse failed:', line, err);
+        }
       }
 
-      if (bleBuffer.length > 1024) {
-        bleBuffer = bleBuffer.slice(-256);
+      // 防止异常分包导致缓存无限增长。
+      if (board.buffer.length > 1500) {
+        board.buffer = board.buffer.slice(-300);
       }
     }
 
-    function onDisconnected() {
-      state.connected = false;
-      state.device = null;
-      state.server = null;
-      state.service = null;
-      state.txChar = null;
-      bleBuffer = '';
-      rawTextEl.textContent = '--';
-      updateInfo();
-    }
-
-    async function connectBLE() {
+    async function connectBoard(id) {
       if (!navigator.bluetooth) {
-        alert('当前浏览器不支持 Web Bluetooth。请使用 Android Chrome，并通过 HTTPS 打开页面。');
+        alert('当前浏览器不支持 Web Bluetooth。建议使用 Android Chrome 或桌面 Chrome，并通过 HTTPS 或 localhost 打开页面。');
         return;
       }
 
-      state.device = await navigator.bluetooth.requestDevice({
+      const board = boards[id];
+
+      if (board.connected) {
+        await disconnectBoard(id);
+        return;
+      }
+
+      board.device = await navigator.bluetooth.requestDevice({
         filters: [{ services: [SERVICE_UUID] }],
         optionalServices: [SERVICE_UUID]
       });
 
-      state.device.addEventListener('gattserverdisconnected', onDisconnected);
-      state.server = await state.device.gatt.connect();
-      state.service = await state.server.getPrimaryService(SERVICE_UUID);
-      state.txChar = await state.service.getCharacteristic(TX_UUID);
+      board.device.addEventListener('gattserverdisconnected', () => {
+        board.connected = false;
+        board.device = null;
+        board.server = null;
+        board.service = null;
+        board.txChar = null;
+        board.rxChar = null;
+        board.buffer = '';
+        updateUI();
+      });
 
-      await state.txChar.startNotifications();
-      state.txChar.addEventListener('characteristicvaluechanged', handleNotify);
+      board.server = await board.device.gatt.connect();
+      board.service = await board.server.getPrimaryService(SERVICE_UUID);
+      board.txChar = await board.service.getCharacteristic(TX_UUID);
+      board.rxChar = await board.service.getCharacteristic(RX_UUID);
 
-      state.connected = true;
-      bleBuffer = '';
-      updateInfo();
+      await board.txChar.startNotifications();
+      board.txChar.addEventListener('characteristicvaluechanged', event => handleNotify(board, event));
+
+      board.connected = true;
+      board.buffer = '';
+      updateUI();
     }
 
-    async function disconnectBLE() {
+    async function disconnectBoard(id) {
+      const board = boards[id];
       try {
-        if (state.txChar) {
-          state.txChar.removeEventListener('characteristicvaluechanged', handleNotify);
-        }
-        if (state.device && state.device.gatt.connected) {
-          state.device.gatt.disconnect();
+        if (board.device && board.device.gatt.connected) {
+          board.device.gatt.disconnect();
         }
       } finally {
-        onDisconnected();
+        board.connected = false;
+        board.device = null;
+        board.server = null;
+        board.service = null;
+        board.txChar = null;
+        board.rxChar = null;
+        board.buffer = '';
+        updateUI();
       }
     }
 
-    connectBtn.addEventListener('click', async () => {
-      try {
-        if (state.connected) await disconnectBLE();
-        else await connectBLE();
-      } catch (err) {
-        console.error(err);
-        if (err?.message?.includes('User cancelled')) return;
-        alert('连接失败: ' + err.message);
+    async function sendCalibration() {
+      const payload = new TextEncoder().encode('CAL\n');
+      const targets = getConnectedBoards().filter(b => b.rxChar);
+
+      if (targets.length === 0) {
+        alert('请先连接至少一个 IMU 节点。');
+        return;
+      }
+
+      for (const board of targets) {
+        await board.rxChar.writeValue(payload);
+      }
+
+      flashEvent('校准');
+      el.status.textContent = '已发送静止校准指令。请保持双板平放、平行、静止约 1 秒。';
+    }
+
+    el.connectLeftBtn.addEventListener('click', async () => {
+      try { await connectBoard('L'); }
+      catch (err) {
+        if (!String(err.message || '').includes('User cancelled')) alert('左板连接失败：' + err.message);
       }
     });
 
-    startLogBtn.addEventListener('click', () => {
-      logRecords = [];
-      logging = true;
-      updateInfo();
-      alert('开始记录');
+    el.connectRightBtn.addEventListener('click', async () => {
+      try { await connectBoard('R'); }
+      catch (err) {
+        if (!String(err.message || '').includes('User cancelled')) alert('右板连接失败：' + err.message);
+      }
     });
 
-    stopLogBtn.addEventListener('click', () => {
-      logging = false;
-      updateInfo();
-      alert(`停止记录，共 ${logRecords.length} 条`);
+    el.calibrateBtn.addEventListener('click', async () => {
+      try { await sendCalibration(); }
+      catch (err) { alert('发送校准失败：' + err.message); }
     });
 
-    downloadLogBtn.addEventListener('click', () => {
-      const content = logRecords.map(x => JSON.stringify(x)).join('\n');
+    el.startLogBtn.addEventListener('click', () => {
+      appState.logRecords = [];
+      appState.logging = true;
+      updateUI();
+    });
+
+    el.stopLogBtn.addEventListener('click', () => {
+      appState.logging = false;
+      updateUI();
+    });
+
+    el.downloadLogBtn.addEventListener('click', () => {
+      const content = appState.logRecords.map(row => JSON.stringify(row)).join('\n');
       const blob = new Blob([content], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `imu_log_${Date.now()}.jsonl`;
+      a.download = `ski_imu_log_${Date.now()}.jsonl`;
       a.click();
       URL.revokeObjectURL(url);
     });
 
+    // ============================================================
+    // Three.js 双雪板姿态展示
+    // ============================================================
     const threeCanvas = document.getElementById('threeCanvas');
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f172a);
+    scene.background = new THREE.Color(0x101820);
 
-    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(2.2, 0.4, 8);
+    const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 1000);
+    camera.position.set(0, 4.4, 8.8);
+    camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.65));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(6, 5, 8);
-    scene.add(dir);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.62));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 0.95);
+    keyLight.position.set(4, 8, 6);
+    scene.add(keyLight);
 
-    const boardGroup = new THREE.Group();
-    scene.add(boardGroup);
+    const snow = new THREE.Mesh(
+      new THREE.PlaneGeometry(12, 10),
+      new THREE.MeshPhongMaterial({ color: 0xdfeeed, shininess: 16 })
+    );
+    snow.rotation.x = -Math.PI / 2;
+    snow.position.y = -0.12;
+    scene.add(snow);
 
-    const pcbGeo = new THREE.BoxGeometry(2.2, 4.4, 0.18);
-    const pcbMat = new THREE.MeshPhongMaterial({ color: 0x0f9d58 });
-    const pcb = new THREE.Mesh(pcbGeo, pcbMat);
-    boardGroup.add(pcb);
+    const skiGroups = {
+      L: createSkiMesh(-0.55, 0x2f80ed),
+      R: createSkiMesh(0.55, 0xf97316)
+    };
 
-    const edges = new THREE.EdgesGeometry(pcbGeo);
-    const edgeLines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffffff }));
-    boardGroup.add(edgeLines);
+    function createSkiMesh(x, color) {
+      const group = new THREE.Group();
+      group.position.x = x;
+
+      const ski = new THREE.Mesh(
+        new THREE.BoxGeometry(0.32, 4.8, 0.08),
+        new THREE.MeshPhongMaterial({ color, shininess: 70 })
+      );
+      ski.position.y = 0;
+      group.add(ski);
+
+      const boot = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5, 0.86, 0.28),
+        new THREE.MeshPhongMaterial({ color: 0x23313b, shininess: 40 })
+      );
+      boot.position.z = 0.18;
+      group.add(boot);
+
+      const edge = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(0.32, 4.8, 0.08)),
+        new THREE.LineBasicMaterial({ color: 0xffffff })
+      );
+      group.add(edge);
+
+      scene.add(group);
+      return group;
+    }
+
+    function resize3D() {
+      const rect = threeCanvas.getBoundingClientRect();
+      renderer.setSize(rect.width, rect.height, false);
+      camera.aspect = rect.width / Math.max(1, rect.height);
+      camera.updateProjectionMatrix();
+    }
 
     function animate3D() {
-      boardGroup.rotation.x = state.roll;
-      boardGroup.rotation.z = state.pitch;
+      // ed 是相对校准零点的 Roll 角，转成弧度后映射到雪板侧倾。
+      for (const id of ['L', 'R']) {
+        const data = boards[id].data;
+        const targetRoll = Number.isFinite(Number(data.ed)) ? Number(data.ed) * Math.PI / 180 : 0;
+        const targetPitch = Number.isFinite(Number(data.pd)) ? Number(data.pd) * Math.PI / 360 : 0;
+        skiGroups[id].rotation.y += (targetRoll - skiGroups[id].rotation.y) * 0.18;
+        skiGroups[id].rotation.x += (targetPitch - skiGroups[id].rotation.x) * 0.12;
+      }
+
       renderer.render(scene, camera);
       requestAnimationFrame(animate3D);
     }
 
+    // ============================================================
+    // 底部曲线：左右立刃角历史
+    // ============================================================
     const chartCanvas = document.getElementById('chartCanvas');
     const chartCtx = chartCanvas.getContext('2d');
 
     function resizeChart() {
       const rect = chartCanvas.getBoundingClientRect();
-      chartCanvas.width = rect.width * devicePixelRatio;
-      chartCanvas.height = rect.height * devicePixelRatio;
-      chartCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      chartCanvas.width = rect.width * window.devicePixelRatio;
+      chartCanvas.height = rect.height * window.devicePixelRatio;
+      chartCtx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
     }
 
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      resizeChart();
-    });
-
-    function drawLine(arr, color, maxVal, minVal) {
+    function drawLine(arr, color) {
       const w = chartCanvas.clientWidth;
       const h = chartCanvas.clientHeight;
       if (arr.length < 2) return;
@@ -529,12 +805,12 @@
       chartCtx.lineWidth = 2;
 
       for (let i = 0; i < arr.length; i++) {
-        const x = (i / (state.maxPoints - 1)) * w;
-        const yNorm = (arr[i] - minVal) / (maxVal - minVal + 1e-6);
-        const y = h - yNorm * h;
+        const x = (i / (MAX_POINTS - 1)) * w;
+        const y = h / 2 - (arr[i] / 45) * (h * 0.42);
         if (i === 0) chartCtx.moveTo(x, y);
         else chartCtx.lineTo(x, y);
       }
+
       chartCtx.stroke();
     }
 
@@ -543,30 +819,43 @@
       const h = chartCanvas.clientHeight;
       chartCtx.clearRect(0, 0, w, h);
 
-      chartCtx.strokeStyle = 'rgba(255,255,255,0.08)';
+      chartCtx.strokeStyle = 'rgba(255,255,255,0.12)';
       chartCtx.lineWidth = 1;
-      for (let i = 1; i < 4; i++) {
-        const y = (h / 4) * i;
+      chartCtx.beginPath();
+      chartCtx.moveTo(0, h / 2);
+      chartCtx.lineTo(w, h / 2);
+      chartCtx.stroke();
+
+      for (const deg of [-30, 30]) {
+        const y = h / 2 - (deg / 45) * (h * 0.42);
+        chartCtx.strokeStyle = 'rgba(255,255,255,0.07)';
         chartCtx.beginPath();
         chartCtx.moveTo(0, y);
         chartCtx.lineTo(w, y);
         chartCtx.stroke();
       }
 
-      drawLine(state.chartAcc, '#22c55e', 2.2, 0.6);
-      drawLine(state.chartGyro, '#38bdf8', 220, 0);
+      drawLine(appState.chartLeft, '#60a5fa');
+      drawLine(appState.chartRight, '#fb923c');
 
-      chartCtx.fillStyle = '#22c55e';
-      chartCtx.fillText('加速度模长', 10, 16);
-
-      chartCtx.fillStyle = '#38bdf8';
-      chartCtx.fillText('角速度模长', 100, 16);
+      chartCtx.fillStyle = '#60a5fa';
+      chartCtx.fillText('左板立刃角', 10, 18);
+      chartCtx.fillStyle = '#fb923c';
+      chartCtx.fillText('右板立刃角', 100, 18);
+      chartCtx.fillStyle = 'rgba(255,255,255,0.7)';
+      chartCtx.fillText('0°', w - 28, h / 2 - 6);
 
       requestAnimationFrame(drawChart);
     }
 
+    window.addEventListener('resize', () => {
+      resize3D();
+      resizeChart();
+    });
+
+    resize3D();
     resizeChart();
-    updateInfo();
+    updateUI();
     requestAnimationFrame(animate3D);
     requestAnimationFrame(drawChart);
   </script>
