@@ -166,6 +166,21 @@
       line-height: 1.35;
     }
 
+    .loadBar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 3px;
+      width: 100%;
+      height: 14px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #dce6e9;
+      margin-top: 8px;
+    }
+
+    .loadLeft { background: #60a5fa; }
+    .loadRight { background: #fb923c; }
+
     #pathCanvas, #chartCanvas {
       width: 100%;
       height: 100%;
@@ -241,6 +256,16 @@
           <div class="small" id="rightPhase">--</div>
         </div>
         <div class="card">
+          <div class="cardTitle">左脚掌承重点</div>
+          <div class="big" id="leftFootSpot">--</div>
+          <div class="small" id="leftFootDetail">趋势估计</div>
+        </div>
+        <div class="card">
+          <div class="cardTitle">右脚掌承重点</div>
+          <div class="big" id="rightFootSpot">--</div>
+          <div class="small" id="rightFootDetail">趋势估计</div>
+        </div>
+        <div class="card">
           <div class="cardTitle">同步分</div>
           <div class="big" id="syncScore">--</div>
           <div class="small">左右立刃角差估算</div>
@@ -249,6 +274,15 @@
           <div class="cardTitle">换刃次数</div>
           <div class="big" id="edgeCount">--</div>
           <div class="small">左右计数取最大值</div>
+        </div>
+        <div class="card wide">
+          <div class="cardTitle">承重估计</div>
+          <div class="big" id="loadGuess">--</div>
+          <div class="loadBar">
+            <div id="loadLeftBar" class="loadLeft"></div>
+            <div id="loadRightBar" class="loadRight"></div>
+          </div>
+          <div class="small" id="loadDetail">趋势估计，不是真实压力</div>
         </div>
         <div class="card wide">
           <div class="cardTitle">换刃过程</div>
@@ -312,8 +346,16 @@
       rightEdge: document.getElementById('rightEdge'),
       leftPhase: document.getElementById('leftPhase'),
       rightPhase: document.getElementById('rightPhase'),
+      leftFootSpot: document.getElementById('leftFootSpot'),
+      rightFootSpot: document.getElementById('rightFootSpot'),
+      leftFootDetail: document.getElementById('leftFootDetail'),
+      rightFootDetail: document.getElementById('rightFootDetail'),
       syncScore: document.getElementById('syncScore'),
       edgeCount: document.getElementById('edgeCount'),
+      loadGuess: document.getElementById('loadGuess'),
+      loadDetail: document.getElementById('loadDetail'),
+      loadLeftBar: document.getElementById('loadLeftBar'),
+      loadRightBar: document.getElementById('loadRightBar'),
       edgeChangeStatus: document.getElementById('edgeChangeStatus'),
       edgeChangeDetail: document.getElementById('edgeChangeDetail'),
       edgeChangeList: document.getElementById('edgeChangeList'),
@@ -393,9 +435,71 @@
       return frame?.[side]?.ph || 'UNKNOWN';
     }
 
+    function pitchOf(frame, side) {
+      const v = Number(frame?.[side]?.pd);
+      return Number.isFinite(v) ? v : 0;
+    }
+
     function syncScore(frame) {
       if (!frame?.L || !frame?.R) return NaN;
       return clamp(100 - Math.abs(edgeOf(frame, 'L') - edgeOf(frame, 'R')) * 4, 0, 100);
+    }
+
+    function estimateLoad(frame) {
+      const left = frame?.L;
+      const right = frame?.R;
+      if (!left || !right) {
+        return { leftRatio: NaN, rightRatio: NaN, dominant: '--', confidence: '低', reason: '等待左右板数据' };
+      }
+
+      const lEdge = edgeOf(frame, 'L');
+      const rEdge = edgeOf(frame, 'R');
+      const lAm = Number.isFinite(Number(left.am)) ? Number(left.am) : 1.0;
+      const rAm = Number.isFinite(Number(right.am)) ? Number(right.am) : 1.0;
+      const lRr = Math.abs(Number(left.rr || 0));
+      const rRr = Math.abs(Number(right.rr || 0));
+      const avgEdge = (lEdge + rEdge) / 2;
+      const isChanging = phaseOf(frame, 'L') === 'EDGE_CHANGE' || phaseOf(frame, 'R') === 'EDGE_CHANGE' || Math.abs(avgEdge) < 5;
+
+      let lRaw = 1.0 + Math.abs(lEdge) * 0.018 + Math.max(0, lAm - 0.96) * 0.9 - lRr * 0.0025;
+      let rRaw = 1.0 + Math.abs(rEdge) * 0.018 + Math.max(0, rAm - 0.96) * 0.9 - rRr * 0.0025;
+
+      if (!isChanging && Math.sign(lEdge) === Math.sign(rEdge)) {
+        if (avgEdge > 0) rRaw *= 1.12;
+        if (avgEdge < 0) lRaw *= 1.12;
+      }
+
+      lRaw = Math.max(0.15, lRaw);
+      rRaw = Math.max(0.15, rRaw);
+      const sum = lRaw + rRaw;
+      const leftRatio = lRaw / sum;
+      const rightRatio = rRaw / sum;
+      const diff = Math.abs(leftRatio - rightRatio);
+      const confidence = isChanging || Math.max(lRr, rRr) > 140 ? '低' : '中';
+      const dominant = diff < 0.08 ? '接近均衡' : leftRatio > rightRatio ? '左脚' : '右脚';
+      const reason = isChanging ? '换刃/平板阶段，承重正在转移' : '按外板、立刃稳定度和加速度趋势估计';
+
+      return { leftRatio, rightRatio, dominant, confidence, reason };
+    }
+
+    function estimateFootSpot(row) {
+      if (!row || !Number.isFinite(Number(row.ed)) || !Number.isFinite(Number(row.pd))) {
+        return { label: '--', detail: '等待姿态数据' };
+      }
+
+      const edge = Number(row.ed);
+      const pitch = Number(row.pd);
+      const rr = Math.abs(Number(row.rr || 0));
+      const pr = Math.abs(Number(row.pr || 0));
+      const am = Number.isFinite(Number(row.am)) ? Number(row.am) : 1.0;
+      const foreAft = pitch > 8 ? '偏前掌' : pitch < -8 ? '偏后跟' : '脚心附近';
+      const side = edge > 10 ? '偏右侧刃' : edge < -10 ? '偏左侧刃' : '内外居中';
+      const confidence = rr > 120 || pr > 100 || Math.abs(am - 1) > 0.55 || row.ph === 'EDGE_CHANGE' ? '低' : '中';
+
+      return {
+        label: `${foreAft} · ${side}`,
+        detail: `Pitch ${pitch.toFixed(1)}°，Edge ${edge.toFixed(1)}°，可信度 ${confidence}`
+      };
     }
 
     function avgEdgeOf(frame) {
@@ -554,6 +658,7 @@
       const sync = syncScore(frame);
       const ec = Math.max(Number(frame.L?.ec || 0), Number(frame.R?.ec || 0));
       const span = edgeChangeAt(state.index);
+      const load = estimateLoad(frame);
 
       el.timeText.textContent = `${frame.t.toFixed(2)} / ${state.duration.toFixed(2)} s`;
       el.scrub.value = state.frames.length > 1 ? Math.round((state.index / (state.frames.length - 1)) * 1000) : 0;
@@ -561,8 +666,27 @@
       el.rightEdge.textContent = fmtDeg(right);
       el.leftPhase.textContent = phaseToCN(phaseOf(frame, 'L'));
       el.rightPhase.textContent = phaseToCN(phaseOf(frame, 'R'));
+      const leftSpot = estimateFootSpot(frame.L);
+      const rightSpot = estimateFootSpot(frame.R);
+      el.leftFootSpot.textContent = leftSpot.label;
+      el.rightFootSpot.textContent = rightSpot.label;
+      el.leftFootDetail.textContent = leftSpot.detail;
+      el.rightFootDetail.textContent = rightSpot.detail;
       el.syncScore.textContent = Number.isFinite(sync) ? sync.toFixed(0) : '--';
       el.edgeCount.textContent = String(ec);
+      if (Number.isFinite(load.leftRatio)) {
+        const leftPct = load.leftRatio * 100;
+        const rightPct = 100 - leftPct;
+        el.loadGuess.textContent = `${load.dominant} · 左 ${leftPct.toFixed(0)}% / 右 ${rightPct.toFixed(0)}%`;
+        el.loadDetail.textContent = `${load.reason} · 可信度 ${load.confidence}`;
+        el.loadLeftBar.style.width = `${leftPct}%`;
+        el.loadRightBar.style.width = `${rightPct}%`;
+      } else {
+        el.loadGuess.textContent = '--';
+        el.loadDetail.textContent = load.reason;
+        el.loadLeftBar.style.width = '50%';
+        el.loadRightBar.style.width = '50%';
+      }
       el.edgeChangeStatus.textContent = span ? '换刃中' : '非换刃';
       el.edgeChangeDetail.textContent = span
         ? `${span.startT.toFixed(2)}s → ${span.endT.toFixed(2)}s，平均立刃 ${span.fromEdge.toFixed(1)}° → ${span.toEdge.toFixed(1)}°`
@@ -798,6 +922,7 @@
 
       drawSeries('L', '#60a5fa');
       drawSeries('R', '#fb923c');
+      drawLoadSeries();
 
       const cursorX = (state.index / Math.max(1, state.frames.length - 1)) * w;
       chartCtx.strokeStyle = '#ffffff';
@@ -812,7 +937,7 @@
       chartCtx.fillStyle = '#fb923c';
       chartCtx.fillText('右板 ed', 86, 18);
       chartCtx.fillStyle = 'rgba(255,255,255,0.72)';
-      chartCtx.fillText('橙色背景 = 换刃过程', 160, 18);
+      chartCtx.fillText('绿色 = 左脚承重占比', 160, 18);
     }
 
     function drawEdgeChangeBands(w, h) {
@@ -843,6 +968,30 @@
       });
 
       chartCtx.stroke();
+    }
+
+    function drawLoadSeries() {
+      const w = chartCanvas.clientWidth;
+      const h = chartCanvas.clientHeight;
+      if (!state.frames.length) return;
+
+      chartCtx.save();
+      chartCtx.strokeStyle = '#22c55e';
+      chartCtx.lineWidth = 2;
+      chartCtx.setLineDash([5, 4]);
+      chartCtx.beginPath();
+
+      state.frames.forEach((frame, i) => {
+        const load = estimateLoad(frame);
+        const ratio = Number.isFinite(load.leftRatio) ? load.leftRatio : 0.5;
+        const x = (i / Math.max(1, state.frames.length - 1)) * w;
+        const y = h - ratio * h;
+        if (i === 0) chartCtx.moveTo(x, y);
+        else chartCtx.lineTo(x, y);
+      });
+
+      chartCtx.stroke();
+      chartCtx.restore();
     }
 
     function drawAll() {
