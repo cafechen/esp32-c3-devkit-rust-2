@@ -1,0 +1,15 @@
+android/.gradle/
+android/.idea/
+android/build/
+android/app/build/
+android/app/src/main/assets/index.html
+android/app/src/main/assets/replay.html
+android/app/src/main/assets/three.min.js
+android/local.properties
+android/Resolve
+android/root
+android/gradle/
+android/gradlew
+android/gradlew.bat
+gradle-*.zip
+*.apk

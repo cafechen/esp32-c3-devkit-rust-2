@@ -252,6 +252,7 @@
         <button id="startLogBtn" class="secondary">开始记录</button>
         <button id="stopLogBtn" class="secondary">停止记录</button>
         <button id="downloadLogBtn" class="secondary wide">导出日志</button>
+        <button id="openReplayBtn" class="secondary wide">回放日志</button>
       </div>
 
       <div id="status" class="statusLine">未连接。请先分别连接左右板，再让双板平放并点击静止校准。</div>
@@ -340,7 +341,7 @@
     </main>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="three.min.js"></script>
   <script>
     // ============================================================
     // Web Bluetooth UUID：和 Arduino 固件中的 BLE UART UUID 保持一致
@@ -350,6 +351,7 @@
     const TX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
     const MAX_POINTS = 240;
+    const IS_ANDROID_APP = Boolean(window.SkiAndroid?.isAndroidApp?.());
 
     // 每块板各维护一份连接对象和最新数据。
     const boards = {
@@ -403,6 +405,7 @@
       startLogBtn: document.getElementById('startLogBtn'),
       stopLogBtn: document.getElementById('stopLogBtn'),
       downloadLogBtn: document.getElementById('downloadLogBtn'),
+      openReplayBtn: document.getElementById('openReplayBtn'),
       status: document.getElementById('status'),
       syncScore: document.getElementById('syncScore'),
       syncBadge: document.getElementById('syncBadge'),
@@ -677,15 +680,49 @@
       }
 
       if (appState.logging) {
-        appState.logRecords.push({
+        const record = {
           ts: Date.now(),
           side: board.id,
           ...data
-        });
+        };
+        appState.logRecords.push(record);
+        if (IS_ANDROID_APP) {
+          window.SkiAndroid.appendLogLine(JSON.stringify(record));
+        }
       }
 
       updateUI();
     }
+
+    window.AndroidBle = {
+      handleNativeConnection(id, connected) {
+        const board = boards[id];
+        if (!board) return;
+        board.connected = connected;
+        if (!connected) {
+          board.device = null;
+          board.server = null;
+          board.service = null;
+          board.txChar = null;
+          board.rxChar = null;
+          board.buffer = '';
+        }
+        updateUI();
+      },
+      handleNativeLine(id, line) {
+        const board = boards[id];
+        if (!board) return;
+        board.connected = true;
+        try {
+          applyBoardData(board, JSON.parse(line));
+        } catch (err) {
+          console.log('Native JSON parse failed:', line, err);
+        }
+      },
+      handleNativeStatus(text) {
+        el.status.textContent = text;
+      }
+    };
 
     function handleNotify(board, event) {
       const text = new TextDecoder().decode(event.target.value);
@@ -711,6 +748,16 @@
     }
 
     async function connectBoard(id) {
+      if (IS_ANDROID_APP) {
+        if (boards[id].connected) {
+          window.SkiAndroid.disconnectBoard(id);
+        } else {
+          window.SkiAndroid.connectBoard(id);
+          el.status.textContent = `正在连接 ${id} 板...`;
+        }
+        return;
+      }
+
       if (!navigator.bluetooth) {
         alert('当前浏览器不支持 Web Bluetooth。建议使用 Android Chrome 或桌面 Chrome，并通过 HTTPS 或 localhost 打开页面。');
         return;
@@ -753,6 +800,11 @@
     }
 
     async function disconnectBoard(id) {
+      if (IS_ANDROID_APP) {
+        window.SkiAndroid.disconnectBoard(id);
+        return;
+      }
+
       const board = boards[id];
       try {
         if (board.device && board.device.gatt.connected) {
@@ -771,6 +823,12 @@
     }
 
     async function sendCalibration() {
+      if (IS_ANDROID_APP) {
+        window.SkiAndroid.sendCalibration();
+        flashEvent('校准');
+        return;
+      }
+
       const payload = new TextEncoder().encode('CAL\n');
       const targets = getConnectedBoards().filter(b => b.rxChar);
 
@@ -809,16 +867,22 @@
     el.startLogBtn.addEventListener('click', () => {
       appState.logRecords = [];
       appState.logging = true;
+      if (IS_ANDROID_APP) window.SkiAndroid.startLog();
       updateUI();
     });
 
     el.stopLogBtn.addEventListener('click', () => {
       appState.logging = false;
+      if (IS_ANDROID_APP) window.SkiAndroid.stopLog();
       updateUI();
     });
 
     el.downloadLogBtn.addEventListener('click', () => {
       const content = appState.logRecords.map(row => JSON.stringify(row)).join('\n');
+      if (IS_ANDROID_APP) {
+        window.SkiAndroid.exportLog(content);
+        return;
+      }
       const blob = new Blob([content], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -826,6 +890,10 @@
       a.download = `ski_imu_log_${Date.now()}.jsonl`;
       a.click();
       URL.revokeObjectURL(url);
+    });
+
+    el.openReplayBtn.addEventListener('click', () => {
+      window.location.href = 'replay.html';
     });
 
     // ============================================================

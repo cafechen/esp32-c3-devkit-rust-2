@@ -126,6 +126,26 @@ http://localhost:8000/index.html
 - 默认会尝试加载 `ski_imu_log_1777385783530.jsonl`。
 - 也可以把任意 JSONL 日志拖到页面左侧区域，或通过文件选择器打开。
 
+## Android 手机客户端
+
+仓库里新增了 `android/` Android 工程，用 WebView 复用 `index.html` / `replay.html` 的界面和算法，并用原生 BLE 替代 Web Bluetooth：
+
+- 采集页点击“连接左板 / 连接右板”会扫描 `SKI-IMU-L` / `SKI-IMU-R` 设备。
+- 点击“开始记录”后，每条 BLE 数据都会立刻追加保存到 App 私有目录的 JSONL 文件。
+- 点击“回放日志”可以直接加载本机最新日志，不需要先导出再导入。
+- 点击“导出日志”会把当前 JSONL 复制到手机 `Downloads/`。
+
+用 Android Studio 打开 `android/` 目录，等待 Gradle 同步后运行到手机即可。构建时会自动把仓库根目录的 `index.html` 和 `replay.html` 复制到 App assets。
+
+命令行构建：
+
+```bash
+cd android
+gradle assembleDebug
+```
+
+需要 Android SDK、Android Gradle Plugin 和一台支持 BLE 的 Android 手机。首次运行要允许蓝牙权限；Android 11 及以下还需要位置权限才能扫描 BLE。
+
 ## 数据格式
 
 ESP32 串口会输出完整 JSON，方便调参和离线分析；BLE 会发送精简 JSON，避免 Web Bluetooth 通知包过长。

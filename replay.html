@@ -229,6 +229,8 @@
       <div class="controls">
         <button id="playBtn">播放</button>
         <button id="resetBtn" class="secondary">回到开始</button>
+        <button id="openRecorderBtn" class="secondary wide">实时采集</button>
+        <button id="loadLocalBtn" class="secondary wide">加载本机最新日志</button>
         <button id="loadDefaultBtn" class="secondary wide">加载默认日志</button>
         <input id="fileInput" class="wide" type="file" accept=".jsonl,.json,text/plain" />
       </div>
@@ -318,6 +320,7 @@
 
   <script>
     const DEFAULT_LOG = 'ski_imu_log_1777385783530.jsonl';
+    const IS_ANDROID_APP = Boolean(window.SkiAndroid?.isAndroidApp?.());
 
     const state = {
       rows: [],
@@ -335,6 +338,8 @@
     const el = {
       playBtn: document.getElementById('playBtn'),
       resetBtn: document.getElementById('resetBtn'),
+      openRecorderBtn: document.getElementById('openRecorderBtn'),
+      loadLocalBtn: document.getElementById('loadLocalBtn'),
       loadDefaultBtn: document.getElementById('loadDefaultBtn'),
       fileInput: document.getElementById('fileInput'),
       dropZone: document.getElementById('dropZone'),
@@ -370,6 +375,10 @@
     const pathCtx = pathCanvas.getContext('2d');
     const chartCanvas = document.getElementById('chartCanvas');
     const chartCtx = chartCanvas.getContext('2d');
+
+    if (!IS_ANDROID_APP) {
+      el.loadLocalBtn.style.display = 'none';
+    }
 
     function clamp(v, lo, hi) {
       return Math.max(lo, Math.min(hi, v));
@@ -618,6 +627,16 @@
       const response = await fetch(DEFAULT_LOG);
       if (!response.ok) throw new Error(`无法加载 ${DEFAULT_LOG}`);
       await loadText(await response.text(), DEFAULT_LOG);
+    }
+
+    async function loadLatestLocalLog() {
+      if (!IS_ANDROID_APP) throw new Error('只在 Android 客户端中可用');
+      const names = JSON.parse(window.SkiAndroid.listLogs() || '[]');
+      if (!names.length) throw new Error('本机还没有保存过日志');
+      const fileName = names[0];
+      const text = window.SkiAndroid.readLog(fileName);
+      if (!text) throw new Error('读取本机日志失败');
+      await loadText(text, fileName);
     }
 
     async function loadText(text, fileName) {
@@ -1034,6 +1053,10 @@
       drawAll();
     });
 
+    el.openRecorderBtn.addEventListener('click', () => {
+      window.location.href = 'index.html';
+    });
+
     el.scrub.addEventListener('input', () => {
       if (!state.frames.length) return;
       state.index = Math.round((Number(el.scrub.value) / 1000) * (state.frames.length - 1));
@@ -1052,6 +1075,14 @@
         await loadDefaultLog();
       } catch (err) {
         alert('加载默认日志失败：' + err.message);
+      }
+    });
+
+    el.loadLocalBtn.addEventListener('click', async () => {
+      try {
+        await loadLatestLocalLog();
+      } catch (err) {
+        alert('加载本机日志失败：' + err.message);
       }
     });
 
@@ -1093,7 +1124,8 @@
     el.speedText.textContent = `${state.speed.toFixed(1)}x`;
     requestAnimationFrame(tick);
 
-    loadDefaultLog().catch(() => {
+    const initialLoad = IS_ANDROID_APP ? loadLatestLocalLog() : loadDefaultLog();
+    initialLoad.catch(() => {
       drawAll();
     });
   </script>

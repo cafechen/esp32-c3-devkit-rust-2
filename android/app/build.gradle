@@ -1,0 +1,27 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.example.skiimu"
+    compileSdk 36
+    buildToolsVersion "36.1.0"
+
+    defaultConfig {
+        applicationId "com.example.skiimu"
+        minSdk 23
+        targetSdk 36
+        versionCode 1
+        versionName "1.0"
+    }
+}
+
+
+tasks.register("copyWebAssets", Copy) {
+    from("../../index.html")
+    from("../../replay.html")
+    from("../../three.min.js")
+    into("src/main/assets")
+}
+
+preBuild.dependsOn(copyWebAssets)
