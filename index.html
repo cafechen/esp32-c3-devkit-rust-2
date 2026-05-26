@@ -3,52 +3,249 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>双板滑雪 IMU 训练面板</title>
+  <title>滑雪 IMU 动作识别</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; }
+
+    :root {
+      color-scheme: dark;
+      --bg: #0f1518;
+      --panel: #172126;
+      --panel-2: #1f2c32;
+      --line: rgba(255,255,255,0.1);
+      --text: #f2f7f4;
+      --muted: #a9bbb7;
+      --blue: #38bdf8;
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --orange: #fb923c;
+    }
 
     html, body {
       width: 100%;
       min-height: 100%;
-      background: #101820;
-      color: #eef5f2;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
       font-family: Arial, "Microsoft YaHei", sans-serif;
     }
 
     body { overflow-x: hidden; }
 
     button {
+      min-height: 42px;
       border: 0;
       border-radius: 8px;
       padding: 10px 12px;
-      background: #2f80ed;
-      color: #ffffff;
-      font-weight: 700;
+      background: #2563eb;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 800;
       cursor: pointer;
     }
 
-    button.secondary { background: #31424f; }
-    button.warn { background: #d97706; }
+    button.secondary { background: #33434a; }
+    button.warn { background: #b45309; }
     button.danger { background: #b91c1c; }
-    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    input {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+      background: #10191d;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: rgba(56,189,248,0.75);
+    }
 
     #app {
       min-height: 100vh;
       display: grid;
-      grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
     }
 
-    #sidePanel {
-      min-height: 100vh;
-      padding: 18px;
-      background: #17232d;
-      border-right: 1px solid rgba(255,255,255,0.08);
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #111b20;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .statusText {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+
+    .topStats {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      border-radius: 8px;
+      padding: 6px 9px;
+      background: #27353b;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .pill.good { background: #166534; }
+    .pill.warn { background: #92400e; }
+    .pill.bad { background: #991b1b; }
+    .pill.info { background: #075985; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(350px, 430px) minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    aside {
+      min-height: 0;
       overflow-y: auto;
+      padding: 14px;
+      border-right: 1px solid var(--line);
+      background: var(--panel);
     }
 
-    #stage {
+    main {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(360px, 1fr) 210px;
+      background: #0e171b;
+    }
+
+    .controlGrid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .wide { grid-column: 1 / -1; }
+    .span2 { grid-column: span 2; }
+
+    h2 {
+      margin: 18px 0 9px;
+      color: #cbd9d5;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    .scoreGrid,
+    .sensorGrid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .card {
+      min-height: 96px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(255,255,255,0.055);
+      overflow: hidden;
+    }
+
+    .cardTitle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.25;
+      margin-bottom: 8px;
+    }
+
+    .value {
+      font-size: 28px;
+      font-weight: 900;
+      line-height: 1.1;
+      letter-spacing: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .small {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: #64727a;
+      flex: 0 0 auto;
+    }
+
+    .dot.on { background: var(--green); }
+
+    .bar {
+      width: 100%;
+      height: 10px;
+      margin-top: 9px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.12);
+    }
+
+    .barFill {
+      width: 50%;
+      height: 100%;
+      border-radius: 999px;
+      background: var(--green);
+      transition: width 0.18s ease;
+    }
+
+    .biasBar {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3px;
+      height: 12px;
+      margin-top: 9px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.1);
+    }
+
+    #leftBiasFill { background: var(--blue); }
+    #rightBiasFill { background: var(--orange); }
+
+    #sceneWrap {
       position: relative;
-      min-height: 100vh;
+      min-height: 360px;
       overflow: hidden;
     }
 
@@ -60,148 +257,22 @@
       display: block;
     }
 
-    h1 {
-      font-size: 24px;
-      line-height: 1.2;
-      margin-bottom: 14px;
-      letter-spacing: 0;
-    }
-
-    h2 {
-      font-size: 15px;
-      color: #b7c7c9;
-      margin: 18px 0 8px;
-      letter-spacing: 0;
-    }
-
-    .controls {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-    }
-
-    .wide { grid-column: 1 / -1; }
-
-    .statusLine {
-      min-height: 20px;
-      margin-top: 10px;
-      color: #b7c7c9;
-      font-size: 13px;
-      line-height: 1.45;
-    }
-
-    .metricGrid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-    }
-
-    .card {
-      border-radius: 8px;
-      background: rgba(255,255,255,0.055);
-      border: 1px solid rgba(255,255,255,0.08);
-      padding: 10px;
-      min-height: 76px;
-    }
-
-    .cardTitle {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      color: #b7c7c9;
-      font-size: 12px;
-      margin-bottom: 6px;
-    }
-
-    .dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      background: #5b6872;
-      flex: 0 0 auto;
-    }
-
-    .dot.on { background: #22c55e; }
-
-    .value {
-      font-size: 24px;
-      font-weight: 800;
-      line-height: 1.15;
-      white-space: normal;
-      overflow-wrap: anywhere;
-    }
-
-    .smallValue {
-      margin-top: 4px;
-      color: #b7c7c9;
-      font-size: 12px;
-      line-height: 1.4;
-      overflow-wrap: anywhere;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      min-height: 30px;
-      border-radius: 8px;
-      padding: 6px 10px;
-      background: #31424f;
-      color: #f8fafc;
-      font-weight: 800;
-      font-size: 13px;
-    }
-
-    .badge.good { background: #15803d; }
-    .badge.warn { background: #b45309; }
-    .badge.bad { background: #b91c1c; }
-    .badge.info { background: #2563eb; }
-
-    #insight {
-      display: grid;
-      gap: 8px;
-    }
-
-    .feedback {
-      border-radius: 8px;
-      padding: 10px;
-      background: rgba(255,255,255,0.055);
-      border-left: 4px solid #5b6872;
-      color: #dbe7e5;
-      font-size: 14px;
-      line-height: 1.45;
-    }
-
-    .feedback.good { border-left-color: #22c55e; }
-    .feedback.warn { border-left-color: #f59e0b; }
-    .feedback.bad { border-left-color: #ef4444; }
-    .feedback.info { border-left-color: #60a5fa; }
-
-    .loadBar {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 3px;
-      width: 100%;
-      height: 14px;
-      overflow: hidden;
-      border-radius: 999px;
-      background: rgba(255,255,255,0.12);
-      margin-top: 8px;
-    }
-
-    .loadLeft { background: #60a5fa; }
-    .loadRight { background: #fb923c; }
-
-    #chartWrap {
+    #sceneOverlay {
       position: absolute;
-      left: 18px;
-      right: 18px;
-      bottom: 18px;
-      height: 190px;
-      border-radius: 8px;
-      background: rgba(10,16,20,0.72);
-      border: 1px solid rgba(255,255,255,0.08);
-      padding: 10px;
+      left: 14px;
+      right: 14px;
+      bottom: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    #chartPanel {
+      min-height: 210px;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+      background: #121d22;
     }
 
     #chartCanvas {
@@ -210,164 +281,293 @@
       display: block;
     }
 
-    #eventFlash {
-      position: absolute;
-      top: 18px;
-      left: 18px;
-      min-width: 148px;
+    .feedbackList {
+      display: grid;
+      gap: 8px;
+    }
+
+    .recordTools {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .logList {
+      display: grid;
+      gap: 8px;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+
+    .logRow {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 12px 14px;
-      background: rgba(37,99,235,0.92);
-      color: #ffffff;
-      font-size: 22px;
-      font-weight: 900;
-      opacity: 0;
-      transform: translateY(-8px);
-      transition: opacity 0.16s ease, transform 0.16s ease;
-      pointer-events: none;
+      padding: 9px;
+      background: rgba(255,255,255,0.045);
+      cursor: pointer;
     }
 
-    #eventFlash.show {
-      opacity: 1;
-      transform: translateY(0);
+    .logRow.selected {
+      border-color: rgba(56,189,248,0.8);
+      background: rgba(56,189,248,0.12);
     }
 
-    @media (max-width: 900px) {
-      #app { grid-template-columns: 1fr; }
-      #sidePanel { min-height: auto; border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
-      #stage { min-height: 520px; }
-      #chartWrap { left: 10px; right: 10px; bottom: 10px; height: 150px; }
+    .logName {
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .logMeta {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .feedback {
+      border-left: 4px solid #64727a;
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(255,255,255,0.055);
+      color: #dce8e4;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .feedback.good { border-left-color: var(--green); }
+    .feedback.warn { border-left-color: var(--amber); }
+    .feedback.bad { border-left-color: var(--red); }
+    .feedback.info { border-left-color: var(--blue); }
+
+    @media (max-width: 920px) {
+      .topbar { grid-template-columns: 1fr; }
+      .topStats { justify-content: flex-start; }
+      .layout { grid-template-columns: 1fr; }
+      aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      main { grid-template-rows: 430px 190px; }
+    }
+
+    @media (max-width: 520px) {
+      .topbar { padding: 12px; }
+      aside { padding: 12px; }
+      .controlGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .scoreGrid,
+      .sensorGrid { grid-template-columns: 1fr; }
+      .span2 { grid-column: 1 / -1; }
+      main { grid-template-rows: 380px 180px; }
+      .value { font-size: 25px; }
     }
   </style>
 </head>
 <body>
   <div id="app">
-    <aside id="sidePanel">
-      <h1>双板滑雪 IMU</h1>
-
-      <div class="controls">
-        <button id="connectLeftBtn">连接左板</button>
-        <button id="connectRightBtn">连接右板</button>
-        <button id="calibrateBtn" class="warn wide">静止校准</button>
-        <button id="startLogBtn" class="secondary">开始记录</button>
-        <button id="stopLogBtn" class="secondary">停止记录</button>
-        <button id="downloadLogBtn" class="secondary wide">导出日志</button>
-        <button id="openReplayBtn" class="secondary wide">回放日志</button>
+    <header class="topbar">
+      <div>
+        <h1>滑雪 IMU 动作识别</h1>
+        <div id="status" class="statusText">至少连接左小腿和右小腿 IMU；腰部 IMU 可选</div>
       </div>
+      <div class="topStats">
+        <span id="recordingPill" class="pill">未记录</span>
+        <span id="hzPill" class="pill info">0 Hz</span>
+        <span id="healthPill" class="pill warn">未就绪</span>
+      </div>
+    </header>
 
-      <div id="status" class="statusLine">未连接。请先分别连接左右板，再让双板平放并点击静止校准。</div>
+    <div class="layout">
+      <aside>
+        <div class="controlGrid">
+          <button id="connectWaistBtn">连接腰部(可选)</button>
+          <button id="connectLeftBtn">连接左腿</button>
+          <button id="connectRightBtn">连接右腿</button>
+          <input id="sessionNameInput" class="wide" value="滑雪训练记录" maxlength="40" aria-label="记录名称" />
+          <button id="calibrateBtn" class="warn wide">静止校准</button>
+          <button id="startLogBtn" class="secondary">开始记录</button>
+          <button id="stopLogBtn" class="secondary">停止记录</button>
+          <button id="downloadLogBtn" class="secondary span2">导出日志</button>
+          <button id="openReplayBtn" class="secondary">回放</button>
+        </div>
 
-      <h2>核心指标</h2>
-      <div class="metricGrid">
-        <div class="card">
-          <div class="cardTitle">同步分 <span id="syncBadge" class="badge info">--</span></div>
-          <div class="value" id="syncScore">--</div>
-          <div class="smallValue">左右立刃角差越小越好</div>
-        </div>
-        <div class="card">
-          <div class="cardTitle">当前阶段 <span id="phaseBadge" class="badge">--</span></div>
-          <div class="value" id="globalPhase">--</div>
-          <div class="smallValue" id="turnText">等待数据</div>
-        </div>
-        <div class="card">
-          <div class="cardTitle">平均立刃角</div>
-          <div class="value" id="avgEdge">--</div>
-          <div class="smallValue">左右绝对值平均</div>
-        </div>
-        <div class="card">
-          <div class="cardTitle">换刃次数</div>
-          <div class="value" id="edgeChanges">--</div>
-          <div class="smallValue">来自左右节点计数的最大值</div>
-        </div>
-        <div class="card wide">
-          <div class="cardTitle">承重估计 <span id="loadConfidenceBadge" class="badge info">--</span></div>
-          <div class="value" id="loadGuess">--</div>
-          <div class="loadBar">
-            <div id="loadLeftBar" class="loadLeft"></div>
-            <div id="loadRightBar" class="loadRight"></div>
+        <h2>实时判断</h2>
+        <div class="scoreGrid">
+          <div class="card">
+            <div class="cardTitle">后坐风险 <span id="backwardBadge" class="pill">--</span></div>
+            <div id="backwardScore" class="value">--</div>
+            <div class="bar"><div id="backwardBar" class="barFill"></div></div>
+            <div id="backwardDetail" class="small">等待姿态数据</div>
           </div>
-          <div class="smallValue" id="loadDetail">基于立刃角、加速度模长和 Roll 角速度的趋势估计</div>
+          <div class="card">
+            <div class="cardTitle">转腿一致性 <span id="rotationBadge" class="pill">--</span></div>
+            <div id="rotationScore" class="value">--</div>
+            <div class="bar"><div id="rotationBar" class="barFill"></div></div>
+            <div id="rotationDetail" class="small">等待左右小腿数据</div>
+          </div>
+          <div class="card">
+            <div class="cardTitle">重心转换 <span id="comBadge" class="pill">--</span></div>
+            <div id="comScore" class="value">--</div>
+            <div class="bar"><div id="comBar" class="barFill"></div></div>
+            <div id="comDetail" class="small">等待腰部数据</div>
+          </div>
+          <div class="card">
+            <div class="cardTitle">左右承重趋势 <span id="loadBadge" class="pill">估算</span></div>
+            <div id="loadBias" class="value">--</div>
+            <div class="biasBar">
+              <div id="leftBiasFill"></div>
+              <div id="rightBiasFill"></div>
+            </div>
+            <div id="loadDetail" class="small">不是足底真实压力</div>
+          </div>
         </div>
-      </div>
 
-      <h2>左板</h2>
-      <div class="metricGrid">
-        <div class="card">
-          <div class="cardTitle">连接 <span id="leftDot" class="dot"></span></div>
-          <div class="value" id="leftEdge">--</div>
-          <div class="smallValue" id="leftMeta">未连接</div>
+        <h2>传感器</h2>
+        <div class="sensorGrid">
+          <div class="card">
+            <div class="cardTitle">腰部 <span id="waistDot" class="dot"></span></div>
+            <div id="waistValue" class="value">--</div>
+            <div id="waistMeta" class="small">未连接</div>
+          </div>
+          <div class="card">
+            <div class="cardTitle">左小腿 <span id="leftDot" class="dot"></span></div>
+            <div id="leftValue" class="value">--</div>
+            <div id="leftMeta" class="small">未连接</div>
+          </div>
+          <div class="card">
+            <div class="cardTitle">右小腿 <span id="rightDot" class="dot"></span></div>
+            <div id="rightValue" class="value">--</div>
+            <div id="rightMeta" class="small">未连接</div>
+          </div>
+          <div class="card">
+            <div class="cardTitle">训练数据</div>
+            <div id="recordCount" class="value">0</div>
+            <div id="recordMeta" class="small">raw + features JSONL</div>
+          </div>
         </div>
-        <div class="card">
-          <div class="cardTitle">阶段</div>
-          <div class="value" id="leftPhase">--</div>
-          <div class="smallValue" id="leftRaw">--</div>
-        </div>
-        <div class="card wide">
-          <div class="cardTitle">脚掌承重点估计</div>
-          <div class="value" id="leftFootSpot">--</div>
-          <div class="smallValue" id="leftFootDetail">趋势估计，不是真实足底压力中心</div>
-        </div>
-      </div>
 
-      <h2>右板</h2>
-      <div class="metricGrid">
-        <div class="card">
-          <div class="cardTitle">连接 <span id="rightDot" class="dot"></span></div>
-          <div class="value" id="rightEdge">--</div>
-          <div class="smallValue" id="rightMeta">未连接</div>
-        </div>
-        <div class="card">
-          <div class="cardTitle">阶段</div>
-          <div class="value" id="rightPhase">--</div>
-          <div class="smallValue" id="rightRaw">--</div>
-        </div>
-        <div class="card wide">
-          <div class="cardTitle">脚掌承重点估计</div>
-          <div class="value" id="rightFootSpot">--</div>
-          <div class="smallValue" id="rightFootDetail">趋势估计，不是真实足底压力中心</div>
-        </div>
-      </div>
+        <h2>动作反馈</h2>
+        <div id="feedbackList" class="feedbackList"></div>
 
-      <h2>动作反馈</h2>
-      <div id="insight"></div>
-    </aside>
+        <h2>记录管理</h2>
+        <div class="recordTools">
+          <input id="renameInput" value="" maxlength="40" aria-label="新记录名称" />
+          <button id="refreshLogsBtn" class="secondary">刷新</button>
+          <button id="renameLogBtn" class="secondary">重命名</button>
+          <button id="exportSelectedLogBtn" class="secondary">导出选中</button>
+          <button id="deleteLogBtn" class="danger wide">删除选中</button>
+        </div>
+        <div id="logList" class="logList"></div>
+      </aside>
 
-    <main id="stage">
-      <canvas id="threeCanvas"></canvas>
-      <div id="eventFlash">换刃</div>
-      <div id="chartWrap">
-        <canvas id="chartCanvas"></canvas>
-      </div>
-    </main>
+      <main>
+        <section id="sceneWrap">
+          <canvas id="threeCanvas"></canvas>
+          <div id="sceneOverlay">
+            <span id="posturePill" class="pill">姿态 --</span>
+            <span id="phasePill" class="pill info">窗口 --</span>
+          </div>
+        </section>
+        <section id="chartPanel">
+          <canvas id="chartCanvas"></canvas>
+        </section>
+      </main>
+    </div>
   </div>
 
   <script src="three.min.js"></script>
   <script>
-    // ============================================================
-    // Web Bluetooth UUID：和 Arduino 固件中的 BLE UART UUID 保持一致
-    // ============================================================
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const RX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
     const TX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
-    const MAX_POINTS = 240;
     const IS_ANDROID_APP = Boolean(window.SkiAndroid?.isAndroidApp?.());
+    const MAX_SAMPLES = 700;
+    const MAX_CHART_POINTS = 260;
+    const ROLES = {
+      W: { label: '腰部', device: 'SKI-IMU-W', color: '#38bdf8' },
+      L: { label: '左小腿', device: 'SKI-IMU-L', color: '#60a5fa' },
+      R: { label: '右小腿', device: 'SKI-IMU-R', color: '#fb923c' }
+    };
 
-    // 每块板各维护一份连接对象和最新数据。
-    const boards = {
-      L: createBoardState('L'),
-      R: createBoardState('R')
+    const sensors = {
+      W: createSensorState('W'),
+      L: createSensorState('L'),
+      R: createSensorState('R')
     };
 
     const appState = {
       logging: false,
       logRecords: [],
-      chartLeft: [],
-      chartRight: [],
-      lastEventCount: 0
+      logCount: 0,
+      featureCount: 0,
+      sessionName: '滑雪训练记录',
+      sessionStartedAt: 0,
+      logs: [],
+      selectedLogName: '',
+      latestMetrics: null,
+      chart: { waistRoll: [], leftYaw: [], rightYaw: [] }
     };
 
-    function createBoardState(id) {
+    const el = {
+      status: document.getElementById('status'),
+      recordingPill: document.getElementById('recordingPill'),
+      hzPill: document.getElementById('hzPill'),
+      healthPill: document.getElementById('healthPill'),
+      connectWaistBtn: document.getElementById('connectWaistBtn'),
+      connectLeftBtn: document.getElementById('connectLeftBtn'),
+      connectRightBtn: document.getElementById('connectRightBtn'),
+      sessionNameInput: document.getElementById('sessionNameInput'),
+      calibrateBtn: document.getElementById('calibrateBtn'),
+      startLogBtn: document.getElementById('startLogBtn'),
+      stopLogBtn: document.getElementById('stopLogBtn'),
+      downloadLogBtn: document.getElementById('downloadLogBtn'),
+      openReplayBtn: document.getElementById('openReplayBtn'),
+      backwardScore: document.getElementById('backwardScore'),
+      backwardBadge: document.getElementById('backwardBadge'),
+      backwardBar: document.getElementById('backwardBar'),
+      backwardDetail: document.getElementById('backwardDetail'),
+      rotationScore: document.getElementById('rotationScore'),
+      rotationBadge: document.getElementById('rotationBadge'),
+      rotationBar: document.getElementById('rotationBar'),
+      rotationDetail: document.getElementById('rotationDetail'),
+      comScore: document.getElementById('comScore'),
+      comBadge: document.getElementById('comBadge'),
+      comBar: document.getElementById('comBar'),
+      comDetail: document.getElementById('comDetail'),
+      loadBias: document.getElementById('loadBias'),
+      loadBadge: document.getElementById('loadBadge'),
+      leftBiasFill: document.getElementById('leftBiasFill'),
+      rightBiasFill: document.getElementById('rightBiasFill'),
+      loadDetail: document.getElementById('loadDetail'),
+      waistDot: document.getElementById('waistDot'),
+      leftDot: document.getElementById('leftDot'),
+      rightDot: document.getElementById('rightDot'),
+      waistValue: document.getElementById('waistValue'),
+      leftValue: document.getElementById('leftValue'),
+      rightValue: document.getElementById('rightValue'),
+      waistMeta: document.getElementById('waistMeta'),
+      leftMeta: document.getElementById('leftMeta'),
+      rightMeta: document.getElementById('rightMeta'),
+      recordCount: document.getElementById('recordCount'),
+      recordMeta: document.getElementById('recordMeta'),
+      feedbackList: document.getElementById('feedbackList'),
+      renameInput: document.getElementById('renameInput'),
+      refreshLogsBtn: document.getElementById('refreshLogsBtn'),
+      renameLogBtn: document.getElementById('renameLogBtn'),
+      exportSelectedLogBtn: document.getElementById('exportSelectedLogBtn'),
+      deleteLogBtn: document.getElementById('deleteLogBtn'),
+      logList: document.getElementById('logList'),
+      posturePill: document.getElementById('posturePill'),
+      phasePill: document.getElementById('phasePill')
+    };
+
+    function createSensorState(id) {
       return {
         id,
         connected: false,
@@ -377,346 +577,723 @@
         txChar: null,
         rxChar: null,
         buffer: '',
-        lastPacketText: '',
+        samples: [],
+        last: null,
         lastSeen: 0,
-        data: {
-          t: NaN,
-          tp: NaN,
-          h: NaN,
-          ed: NaN,
-          pd: NaN,
-          yd: NaN,
-          rr: NaN,
-          pr: NaN,
-          gm: NaN,
-          am: NaN,
-          ph: 'UNKNOWN',
-          ec: 0,
-          cal: 0,
-          imu: 0
+        lastPacketText: ''
+      };
+    }
+
+    function clip(x, lo = 0, hi = 1) {
+      if (!Number.isFinite(x)) return lo;
+      return Math.max(lo, Math.min(hi, x));
+    }
+
+    function clampScore(v) {
+      return Math.round(clip(v, 0, 100));
+    }
+
+    function mean(arr, getter = v => v) {
+      let sum = 0;
+      let count = 0;
+      for (const item of arr) {
+        const v = getter(item);
+        if (Number.isFinite(v)) {
+          sum += v;
+          count++;
+        }
+      }
+      return count ? sum / count : NaN;
+    }
+
+    function std(arr, getter = v => v) {
+      const m = mean(arr, getter);
+      if (!Number.isFinite(m)) return NaN;
+      let sum = 0;
+      let count = 0;
+      for (const item of arr) {
+        const v = getter(item);
+        if (Number.isFinite(v)) {
+          sum += (v - m) * (v - m);
+          count++;
+        }
+      }
+      return count > 1 ? Math.sqrt(sum / count) : 0;
+    }
+
+    function rms(arr, getter) {
+      let sum = 0;
+      let count = 0;
+      for (const item of arr) {
+        const v = getter(item);
+        if (Number.isFinite(v)) {
+          sum += v * v;
+          count++;
+        }
+      }
+      return count ? Math.sqrt(sum / count) : NaN;
+    }
+
+    function maxAbs(arr, getter) {
+      let max = NaN;
+      for (const item of arr) {
+        const v = Math.abs(getter(item));
+        if (Number.isFinite(v) && (!Number.isFinite(max) || v > max)) max = v;
+      }
+      return max;
+    }
+
+    function pushLimited(arr, value, limit) {
+      arr.push(value);
+      while (arr.length > limit) arr.shift();
+    }
+
+    function cleanSessionName(value) {
+      const name = String(value || '').trim();
+      return name || '未命名记录';
+    }
+
+    function formatTime(ms) {
+      if (!Number.isFinite(Number(ms)) || Number(ms) <= 0) return '--';
+      const d = new Date(Number(ms));
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    function formatSize(bytes) {
+      const n = Number(bytes);
+      if (!Number.isFinite(n)) return '--';
+      if (n < 1024) return `${n} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    function recentSamples(id, seconds = 2) {
+      const cutoff = Date.now() - seconds * 1000;
+      return sensors[id].samples.filter(s => s.hostTs >= cutoff);
+    }
+
+    function firstActiveTime(samples, getter, threshold, minDurationMs = 150) {
+      if (samples.length < 2) return null;
+      let start = null;
+      for (const s of samples) {
+        const active = Math.abs(getter(s)) > threshold;
+        if (active && start === null) start = s.hostTs;
+        if (!active) start = null;
+        if (start !== null && s.hostTs - start >= minDurationMs) return start / 1000;
+      }
+      return null;
+    }
+
+    function sampleHz(id) {
+      const samples = recentSamples(id, 2);
+      if (samples.length < 2) return 0;
+      const span = (samples[samples.length - 1].hostTs - samples[0].hostTs) / 1000;
+      return span > 0 ? (samples.length - 1) / span : 0;
+    }
+
+    function connectedList() {
+      return Object.values(sensors).filter(s => s.connected).map(s => ROLES[s.id].label);
+    }
+
+    function hasLegPair() {
+      return Boolean(sensors.L.last && sensors.R.last);
+    }
+
+    function hasWaist() {
+      return Boolean(sensors.W.last);
+    }
+
+    function parsePacket(line, fallbackId) {
+      const text = String(line || '').trim();
+      if (!text) return null;
+
+      if (text[0] === '{') {
+        const data = JSON.parse(text);
+        const id = data.id || fallbackId;
+        const rollDeg = Number.isFinite(Number(data.ed)) ? Number(data.ed) : Number(data.r) * 180 / Math.PI;
+        const pitchDeg = Number.isFinite(Number(data.pd)) ? Number(data.pd) : Number(data.p) * 180 / Math.PI;
+        const yawDeg = Number.isFinite(Number(data.yd)) ? Number(data.yd) : Number(data.y) * 180 / Math.PI;
+        return normalizeSample({
+          id,
+          seq: Number(data.seq || 0),
+          sensorMs: Number.isFinite(Number(data.ms)) ? Number(data.ms) : Number(data.t || 0) * 1000,
+          ax: Number(data.ax),
+          ay: Number(data.ay),
+          az: Number(data.az),
+          gx: Number(data.gx),
+          gy: Number(data.gy),
+          gz: Number(data.gz),
+          roll: rollDeg,
+          pitch: pitchDeg,
+          yaw: yawDeg,
+          cal: Number(data.cal || 0),
+          source: 'json'
+        });
+      }
+
+      const p = text.split(',');
+      if (p[0] !== 'S' || p.length < 14) return null;
+      return normalizeSample({
+        id: p[1] || fallbackId,
+        seq: Number(p[2]),
+        sensorMs: Number(p[3]),
+        ax: Number(p[4]) / 1000,
+        ay: Number(p[5]) / 1000,
+        az: Number(p[6]) / 1000,
+        gx: Number(p[7]) / 10,
+        gy: Number(p[8]) / 10,
+        gz: Number(p[9]) / 10,
+        roll: Number(p[10]) / 100,
+        pitch: Number(p[11]) / 100,
+        yaw: Number(p[12]) / 100,
+        cal: Number(p[13]),
+        source: 'csv'
+      });
+    }
+
+    function normalizeSample(sample) {
+      if (!sample || !ROLES[sample.id]) return null;
+      const hostTs = Date.now();
+      return {
+        kind: 'raw',
+        hostTs,
+        id: sample.id,
+        role: ROLES[sample.id].label,
+        seq: Number(sample.seq || 0),
+        sensorMs: Number(sample.sensorMs || 0),
+        ax: Number(sample.ax),
+        ay: Number(sample.ay),
+        az: Number(sample.az),
+        gx: Number(sample.gx),
+        gy: Number(sample.gy),
+        gz: Number(sample.gz),
+        roll: Number(sample.roll),
+        pitch: Number(sample.pitch),
+        yaw: Number(sample.yaw),
+        cal: Number(sample.cal || 0),
+        source: sample.source || 'unknown'
+      };
+    }
+
+    function applySample(sample) {
+      if (!sample) return;
+      const sensor = sensors[sample.id];
+      sensor.connected = true;
+      sensor.last = sample;
+      sensor.lastSeen = Date.now();
+      sensor.lastPacketText = `${sample.id} #${sample.seq} ${sample.roll.toFixed(1)} ${sample.pitch.toFixed(1)}`;
+      pushLimited(sensor.samples, sample, MAX_SAMPLES);
+
+      if (sample.id === 'W') pushLimited(appState.chart.waistRoll, sample.roll, MAX_CHART_POINTS);
+      if (sample.id === 'L') pushLimited(appState.chart.leftYaw, sample.gz, MAX_CHART_POINTS);
+      if (sample.id === 'R') pushLimited(appState.chart.rightYaw, sample.gz, MAX_CHART_POINTS);
+
+      logLine(sample);
+    }
+
+    function logLine(record) {
+      if (!appState.logging) return;
+      const text = JSON.stringify(record);
+      appState.logCount++;
+      if (!IS_ANDROID_APP || appState.logRecords.length < 30000) {
+        appState.logRecords.push(text);
+      }
+      if (IS_ANDROID_APP) {
+        window.SkiAndroid.appendLogLine(text);
+      }
+    }
+
+    function scoreClass(score, inverted = false) {
+      if (!Number.isFinite(score)) return 'pill';
+      const good = inverted ? score <= 30 : score >= 75;
+      const warn = inverted ? score <= 60 : score >= 55;
+      if (good) return 'pill good';
+      if (warn) return 'pill warn';
+      return 'pill bad';
+    }
+
+    function scoreText(score, inverted = false) {
+      if (!Number.isFinite(score)) return '--';
+      if (inverted) {
+        if (score <= 30) return '低';
+        if (score <= 60) return '中';
+        return '高';
+      }
+      if (score >= 75) return '好';
+      if (score >= 55) return '一般';
+      return '偏差';
+    }
+
+    function computePosture() {
+      const w = recentSamples('W', 2);
+      const l = recentSamples('L', 2);
+      const r = recentSamples('R', 2);
+      if (w.length < 8 || l.length < 8 || r.length < 8) {
+        return {
+          ready: false,
+          backwardLeanScore: NaN,
+          trunkShinAngleDiff: NaN,
+          postureStability: NaN,
+          detail: '需要腰部 IMU；双腿模式下暂不计算'
+        };
+      }
+
+      const leftPitch = mean(l, s => s.pitch);
+      const rightPitch = mean(r, s => s.pitch);
+      const shinAvg = (leftPitch + rightPitch) / 2;
+      const trunkPitch = mean(w, s => s.pitch);
+      const trunkRollStd = std(w, s => s.roll);
+      const trunkPitchStd = std(w, s => s.pitch);
+      const shinPitchStd = (std(l, s => s.pitch) + std(r, s => s.pitch)) / 2;
+      const gyroRms = rms(w, s => Math.sqrt(s.gx * s.gx + s.gy * s.gy + s.gz * s.gz));
+      const trunkShinAngleDiff = Math.abs(trunkPitch - shinAvg);
+
+      const instability =
+        0.25 * clip(trunkPitchStd / 10) +
+        0.25 * clip(trunkRollStd / 10) +
+        0.20 * clip(shinPitchStd / 10) +
+        0.30 * clip(gyroRms / 100);
+      const postureStability = clampScore(100 * (1 - instability));
+
+      const expectedShinPitch = 12;
+      const shinForwardRisk = clip((expectedShinPitch - shinAvg) / expectedShinPitch);
+      const trunkBackwardRisk = clip((-trunkPitch) / 15);
+      const parallelRisk = clip(trunkShinAngleDiff / 20);
+      const stabilityRisk = 1 - postureStability / 100;
+      const backwardLeanScore = clampScore(100 * (
+        0.40 * shinForwardRisk +
+        0.25 * trunkBackwardRisk +
+        0.20 * parallelRisk +
+        0.15 * stabilityRisk
+      ));
+
+      return {
+        ready: true,
+        leftShinPitch: leftPitch,
+        rightShinPitch: rightPitch,
+        shinPitchAvg: shinAvg,
+        trunkPitch,
+        trunkShinAngleDiff,
+        postureStability,
+        backwardLeanScore,
+        detail: `胫骨均值 ${shinAvg.toFixed(1)}°，躯干-胫骨差 ${trunkShinAngleDiff.toFixed(1)}°`
+      };
+    }
+
+    function integrateYaw(samples) {
+      if (samples.length < 2) return NaN;
+      let total = 0;
+      for (let i = 1; i < samples.length; i++) {
+        const dt = (samples[i].hostTs - samples[i - 1].hostTs) / 1000;
+        if (dt > 0 && dt < 0.2) total += samples[i].gz * dt;
+      }
+      return total;
+    }
+
+    function activeDuration(samples, threshold) {
+      let ms = 0;
+      for (let i = 1; i < samples.length; i++) {
+        const dt = samples[i].hostTs - samples[i - 1].hostTs;
+        if (Math.abs(samples[i].gz) > threshold && dt > 0 && dt < 200) ms += dt;
+      }
+      return ms / 1000;
+    }
+
+    function computeRotation() {
+      const l = recentSamples('L', 1.6);
+      const r = recentSamples('R', 1.6);
+      const w = recentSamples('W', 1.6);
+      if (l.length < 8 || r.length < 8) {
+        return {
+          ready: false,
+          score: NaN,
+          peakSymmetry: NaN,
+          angleSymmetry: NaN,
+          onsetDiff: NaN,
+          waistLegPhase: NaN,
+          detail: '需要左右小腿 yaw rate'
+        };
+      }
+
+      const leftPeak = maxAbs(l, s => s.gz);
+      const rightPeak = maxAbs(r, s => s.gz);
+      const peakSymmetry = leftPeak > 1 && rightPeak > 1
+        ? Math.min(leftPeak, rightPeak) / Math.max(leftPeak, rightPeak)
+        : NaN;
+
+      const leftAngle = integrateYaw(l);
+      const rightAngle = integrateYaw(r);
+      const angleSymmetry = Math.abs(leftAngle) > 1 && Math.abs(rightAngle) > 1
+        ? Math.min(Math.abs(leftAngle), Math.abs(rightAngle)) / Math.max(Math.abs(leftAngle), Math.abs(rightAngle))
+        : NaN;
+
+      const threshold = 18;
+      const leftOnset = firstActiveTime(l, s => s.gz, threshold);
+      const rightOnset = firstActiveTime(r, s => s.gz, threshold);
+      const legOnset = leftOnset && rightOnset ? Math.min(leftOnset, rightOnset) : (leftOnset || rightOnset);
+      const onsetDiff = leftOnset && rightOnset ? leftOnset - rightOnset : NaN;
+
+      const leftDuration = activeDuration(l, threshold);
+      const rightDuration = activeDuration(r, threshold);
+      const durationDiff = leftDuration - rightDuration;
+      const durationScore = 1 - clip(Math.abs(durationDiff) / 0.8);
+      const onsetScore = Number.isFinite(onsetDiff) ? 1 - clip(Math.abs(onsetDiff) / 0.45) : 0.5;
+
+      let waistLegPhase = NaN;
+      if (w.length >= 8 && legOnset) {
+        const waistOnset = firstActiveTime(w, s => s.gz, 15);
+        waistLegPhase = waistOnset ? waistOnset - legOnset : NaN;
+      }
+
+      const score = clampScore(100 * (
+        0.35 * (Number.isFinite(peakSymmetry) ? peakSymmetry : 0.5) +
+        0.25 * (Number.isFinite(angleSymmetry) ? angleSymmetry : 0.5) +
+        0.20 * durationScore +
+        0.20 * onsetScore
+      ));
+
+      return {
+        ready: true,
+        score,
+        leftYawRatePeak: leftPeak,
+        rightYawRatePeak: rightPeak,
+        leftYawAngleChange: leftAngle,
+        rightYawAngleChange: rightAngle,
+        peakSymmetry,
+        angleSymmetry,
+        rotationDurationDiff: durationDiff,
+        onsetDiff,
+        waistLegPhase,
+        detail: `峰值 L/R ${leftPeak.toFixed(0)}/${rightPeak.toFixed(0)}°/s，启动差 ${Number.isFinite(onsetDiff) ? onsetDiff.toFixed(2) + 's' : '--'}`
+      };
+    }
+
+    function diffSeries(samples, getter) {
+      const out = [];
+      for (let i = 1; i < samples.length; i++) {
+        const dt = (samples[i].hostTs - samples[i - 1].hostTs) / 1000;
+        if (dt > 0 && dt < 0.2) {
+          out.push({ hostTs: samples[i].hostTs, value: (getter(samples[i]) - getter(samples[i - 1])) / dt });
+        }
+      }
+      return out;
+    }
+
+    function computeComShift(rotation) {
+      const w = recentSamples('W', 2.4);
+      const l = recentSamples('L', 2.4);
+      const r = recentSamples('R', 2.4);
+      if (w.length < 10) {
+        return {
+          ready: false,
+          score: NaN,
+          direction: '--',
+          timing: NaN,
+          waistRollChange: NaN,
+          lateralAccPeak: NaN,
+          legWaistPhaseDiff: NaN,
+          transitionSmoothness: NaN,
+          detail: '需要腰部 IMU；双腿模式下暂不计算'
+        };
+      }
+
+      const edgeN = Math.max(3, Math.round(w.length * 0.12));
+      const startRoll = mean(w.slice(0, edgeN), s => s.roll);
+      const endRoll = mean(w.slice(-edgeN), s => s.roll);
+      const waistRollChange = endRoll - startRoll;
+      const direction = waistRollChange > 3 ? '向右' : waistRollChange < -3 ? '向左' : '不明显';
+      const lateralAccPeak = maxAbs(w, s => s.ay);
+      const waistRates = diffSeries(w, s => s.roll);
+      const waistAcc = diffSeries(waistRates.map(x => ({ hostTs: x.hostTs, v: x.value })), s => s.v);
+      const waistJerk = diffSeries(waistAcc.map(x => ({ hostTs: x.hostTs, v: x.value })), s => s.v);
+      const lateralJerk = diffSeries(w, s => s.ay);
+      const rollRatePeak = maxAbs(waistRates, s => s.value);
+      const rollJerkRms = rms(waistJerk, s => s.value);
+      const lateralJerkRms = rms(lateralJerk, s => s.value);
+      const gyroRms = rms(w, s => Math.sqrt(s.gx * s.gx + s.gy * s.gy + s.gz * s.gz));
+
+      const roughness =
+        0.35 * clip(rollJerkRms / 650) +
+        0.30 * clip(lateralJerkRms / 4) +
+        0.20 * clip(gyroRms / 120) +
+        0.15 * clip(rollRatePeak / 140);
+      const transitionSmoothness = clampScore(100 * (1 - roughness));
+
+      const waistOnset = firstActiveTime(waistRates.map(x => ({
+        hostTs: x.hostTs,
+        rate: x.value
+      })), s => s.rate, 8);
+      const leftOnset = firstActiveTime(l, s => s.gz, 18);
+      const rightOnset = firstActiveTime(r, s => s.gz, 18);
+      const legOnset = leftOnset && rightOnset ? Math.min(leftOnset, rightOnset) : (leftOnset || rightOnset);
+      const legWaistPhaseDiff = waistOnset && legOnset ? waistOnset - legOnset : rotation.waistLegPhase;
+      const timingScore = Number.isFinite(legWaistPhaseDiff) ? 1 - clip(Math.abs(legWaistPhaseDiff) / 0.55) : 0.55;
+      const directionScore = Math.abs(waistRollChange) >= 3 ? 1 : 0.45;
+      const lateralScore = clip(lateralAccPeak / 0.55);
+      const phaseScore = timingScore;
+      const score = clampScore(
+        0.30 * timingScore * 100 +
+        0.25 * directionScore * 100 +
+        0.20 * transitionSmoothness +
+        0.15 * phaseScore * 100 +
+        0.10 * lateralScore * 100
+      );
+
+      return {
+        ready: true,
+        score,
+        direction,
+        timing: legWaistPhaseDiff,
+        waistRollChange,
+        lateralAccPeak,
+        legWaistPhaseDiff,
+        transitionSmoothness,
+        detail: `方向 ${direction}，腿腰相位 ${Number.isFinite(legWaistPhaseDiff) ? legWaistPhaseDiff.toFixed(2) + 's' : '--'}，平顺 ${transitionSmoothness}`
+      };
+    }
+
+    function computeLoadBias() {
+      const w = recentSamples('W', 2);
+      const l = recentSamples('L', 2);
+      const r = recentSamples('R', 2);
+      if (w.length < 8 || l.length < 8 || r.length < 8) {
+        return {
+          ready: false,
+          bias: NaN,
+          leftRatio: NaN,
+          rightRatio: NaN,
+          label: '--',
+          detail: '需要腰部 IMU；双腿模式下暂不估算'
+        };
+      }
+
+      const waistShiftScore = clip(mean(w, s => s.roll) / 20, -1, 1);
+      const lateralForceScore = clip(mean(w, s => s.ay) / 0.6, -1, 1);
+      const leftStability = 1 / (1 + std(l, s => s.ax) + std(l, s => s.ay) + std(l, s => s.gz) / 120);
+      const rightStability = 1 / (1 + std(r, s => s.ax) + std(r, s => s.ay) + std(r, s => s.gz) / 120);
+      const legSupportScore = (rightStability - leftStability) / Math.max(0.001, rightStability + leftStability);
+      const leftEnergy = mean(l, s => s.gz * s.gz);
+      const rightEnergy = mean(r, s => s.gz * s.gz);
+      const legRotationScore = (rightEnergy - leftEnergy) / Math.max(1, rightEnergy + leftEnergy);
+      const bias = clip(
+        0.35 * waistShiftScore +
+        0.30 * lateralForceScore +
+        0.20 * legSupportScore +
+        0.15 * legRotationScore,
+        -1,
+        1
+      );
+
+      const leftRatio = clip(0.5 - bias * 0.25, 0.15, 0.85);
+      const rightRatio = 1 - leftRatio;
+      const label = Math.abs(bias) < 0.15 ? '接近均衡' : bias > 0 ? '偏右' : '偏左';
+      return {
+        ready: true,
+        bias,
+        leftRatio,
+        rightRatio,
+        label,
+        waistShiftScore,
+        lateralForceScore,
+        legSupportScore,
+        legRotationScore,
+        detail: `左 ${Math.round(leftRatio * 100)}% / 右 ${Math.round(rightRatio * 100)}%，趋势 ${label}`
+      };
+    }
+
+    function computeMetrics() {
+      const posture = computePosture();
+      const rotation = computeRotation();
+      const com = computeComShift(rotation);
+      const load = computeLoadBias();
+      return {
+        kind: 'features',
+        hostTs: Date.now(),
+        algorithmVersion: 'phone-rules-0.1.0',
+        posture,
+        rotation,
+        com,
+        load,
+        sampleHz: {
+          W: sampleHz('W'),
+          L: sampleHz('L'),
+          R: sampleHz('R')
         }
       };
     }
 
-    const el = {
-      connectLeftBtn: document.getElementById('connectLeftBtn'),
-      connectRightBtn: document.getElementById('connectRightBtn'),
-      calibrateBtn: document.getElementById('calibrateBtn'),
-      startLogBtn: document.getElementById('startLogBtn'),
-      stopLogBtn: document.getElementById('stopLogBtn'),
-      downloadLogBtn: document.getElementById('downloadLogBtn'),
-      openReplayBtn: document.getElementById('openReplayBtn'),
-      status: document.getElementById('status'),
-      syncScore: document.getElementById('syncScore'),
-      syncBadge: document.getElementById('syncBadge'),
-      phaseBadge: document.getElementById('phaseBadge'),
-      globalPhase: document.getElementById('globalPhase'),
-      turnText: document.getElementById('turnText'),
-      avgEdge: document.getElementById('avgEdge'),
-      edgeChanges: document.getElementById('edgeChanges'),
-      loadGuess: document.getElementById('loadGuess'),
-      loadDetail: document.getElementById('loadDetail'),
-      loadLeftBar: document.getElementById('loadLeftBar'),
-      loadRightBar: document.getElementById('loadRightBar'),
-      loadConfidenceBadge: document.getElementById('loadConfidenceBadge'),
-      leftDot: document.getElementById('leftDot'),
-      rightDot: document.getElementById('rightDot'),
-      leftEdge: document.getElementById('leftEdge'),
-      rightEdge: document.getElementById('rightEdge'),
-      leftMeta: document.getElementById('leftMeta'),
-      rightMeta: document.getElementById('rightMeta'),
-      leftPhase: document.getElementById('leftPhase'),
-      rightPhase: document.getElementById('rightPhase'),
-      leftFootSpot: document.getElementById('leftFootSpot'),
-      rightFootSpot: document.getElementById('rightFootSpot'),
-      leftFootDetail: document.getElementById('leftFootDetail'),
-      rightFootDetail: document.getElementById('rightFootDetail'),
-      leftRaw: document.getElementById('leftRaw'),
-      rightRaw: document.getElementById('rightRaw'),
-      insight: document.getElementById('insight'),
-      eventFlash: document.getElementById('eventFlash')
-    };
-
-    function phaseToCN(phase) {
-      switch (phase) {
-        case 'STILL': return '静止';
-        case 'FLAT': return '平板';
-        case 'LEFT_EDGE': return '左刃';
-        case 'RIGHT_EDGE': return '右刃';
-        case 'EDGE_CHANGE': return '换刃';
-        default: return '未知';
-      }
-    }
-
-    function fmtDeg(v) {
-      return Number.isFinite(v) ? `${v.toFixed(1)}°` : '--';
-    }
-
-    function fmtSmall(v, unit = '') {
-      return Number.isFinite(v) ? `${v.toFixed(1)}${unit}` : '--';
-    }
-
-    function pushPoint(arr, v) {
-      arr.push(v);
-      if (arr.length > MAX_POINTS) arr.shift();
-    }
-
-    function getConnectedBoards() {
-      return Object.values(boards).filter(b => b.connected);
-    }
-
-    function bothHaveData() {
-      return Number.isFinite(boards.L.data.ed) && Number.isFinite(boards.R.data.ed);
-    }
-
-    function estimateLoad(left, right) {
-      if (!Number.isFinite(Number(left?.ed)) || !Number.isFinite(Number(right?.ed))) {
-        return { leftRatio: NaN, rightRatio: NaN, dominant: '--', confidence: '低', reason: '等待左右板数据' };
-      }
-
-      const lEdge = Number(left.ed);
-      const rEdge = Number(right.ed);
-      const lAm = Number.isFinite(Number(left.am)) ? Number(left.am) : 1.0;
-      const rAm = Number.isFinite(Number(right.am)) ? Number(right.am) : 1.0;
-      const lRr = Math.abs(Number(left.rr || 0));
-      const rRr = Math.abs(Number(right.rr || 0));
-      const avgEdge = (lEdge + rEdge) / 2;
-      const isChanging = left.ph === 'EDGE_CHANGE' || right.ph === 'EDGE_CHANGE' || Math.abs(avgEdge) < 5;
-
-      let lRaw = 1.0 + Math.abs(lEdge) * 0.018 + Math.max(0, lAm - 0.96) * 0.9 - lRr * 0.0025;
-      let rRaw = 1.0 + Math.abs(rEdge) * 0.018 + Math.max(0, rAm - 0.96) * 0.9 - rRr * 0.0025;
-
-      // 基础平行转弯里，外板通常更承重。这里不求真实压力，只做趋势修正。
-      if (!isChanging && Math.sign(lEdge) === Math.sign(rEdge)) {
-        if (avgEdge > 0) rRaw *= 1.12;
-        if (avgEdge < 0) lRaw *= 1.12;
-      }
-
-      lRaw = Math.max(0.15, lRaw);
-      rRaw = Math.max(0.15, rRaw);
-      const sum = lRaw + rRaw;
-      const leftRatio = lRaw / sum;
-      const rightRatio = rRaw / sum;
-      const diff = Math.abs(leftRatio - rightRatio);
-      const motion = Math.max(lRr, rRr);
-      const confidence = isChanging || motion > 140 ? '低' : diff > 0.16 ? '中' : '中';
-      const dominant = diff < 0.08 ? '接近均衡' : leftRatio > rightRatio ? '左脚' : '右脚';
-      const reason = isChanging ? '换刃/平板阶段，承重正在转移' : '按外板、立刃稳定度和加速度趋势估计';
-
-      return { leftRatio, rightRatio, dominant, confidence, reason };
-    }
-
-    function estimateFootSpot(board) {
-      if (!Number.isFinite(Number(board?.ed)) || !Number.isFinite(Number(board?.pd))) {
-        return { label: '--', detail: '等待姿态数据', confidence: '低' };
-      }
-
-      const edge = Number(board.ed);
-      const pitch = Number(board.pd);
-      const rr = Math.abs(Number(board.rr || 0));
-      const pr = Math.abs(Number(board.pr || 0));
-      const am = Number.isFinite(Number(board.am)) ? Number(board.am) : 1.0;
-
-      const foreAft = pitch > 8 ? '偏前掌' : pitch < -8 ? '偏后跟' : '脚心附近';
-      const side = edge > 10 ? '偏右侧刃' : edge < -10 ? '偏左侧刃' : '内外较居中';
-      const confidence = rr > 120 || pr > 100 || Math.abs(am - 1) > 0.55 || board.ph === 'EDGE_CHANGE' ? '低' : '中';
-      const label = `${foreAft} · ${side}`;
-      const detail = `Pitch ${pitch.toFixed(1)}°，Edge ${edge.toFixed(1)}°，可信度 ${confidence}`;
-
-      return { label, detail, confidence };
-    }
-
-    function computeMetrics() {
-      const l = boards.L.data;
-      const r = boards.R.data;
-      const hasBoth = bothHaveData();
-
-      if (!hasBoth) {
-        return {
-          hasBoth,
-          sync: NaN,
-          avgEdge: NaN,
-          edgeDiff: NaN,
-          globalPhase: '等待',
-          turnText: '需要左右板都连接并收到数据',
-          edgeChanges: Math.max(l.ec || 0, r.ec || 0),
-          load: estimateLoad(l, r),
-          feedback: [{ level: 'info', text: '先连接左右两个节点；双板平放、平行、静止后点击“静止校准”。' }]
-        };
-      }
-
-      const leftEdge = l.ed;
-      const rightEdge = r.ed;
-      const edgeDiff = Math.abs(leftEdge - rightEdge);
-      const absAvg = (Math.abs(leftEdge) + Math.abs(rightEdge)) / 2;
-      const sync = Math.max(0, Math.min(100, 100 - edgeDiff * 4));
-      const edgeChanges = Math.max(l.ec || 0, r.ec || 0);
-      const load = estimateLoad(l, r);
-
-      let globalPhase = '滑行';
-      if (l.ph === 'EDGE_CHANGE' || r.ph === 'EDGE_CHANGE') globalPhase = '换刃';
-      else if (Math.abs(leftEdge) < 4 && Math.abs(rightEdge) < 4) globalPhase = '平板';
-      else if (Math.sign(leftEdge) === Math.sign(rightEdge)) globalPhase = leftEdge > 0 ? '同向立刃 +' : '同向立刃 -';
-      else globalPhase = '板角分离';
-
-      let turnText = '双板立刃方向一致';
-      if (globalPhase === '换刃') turnText = 'Roll 接近零且角速度较高';
-      if (globalPhase === '平板') turnText = '立刃不足或直滑';
-      if (globalPhase === '板角分离') turnText = '左右板 Roll 符号相反，可能出现八字/内外板不同步';
-
-      const feedback = [];
-      if (sync >= 82) feedback.push({ level: 'good', text: '左右板立刃同步较好，双板平行感不错。' });
-      else if (sync >= 60) feedback.push({ level: 'warn', text: '左右板立刃角有差异，注意两脚同时换刃，避免一只脚拖后。' });
-      else feedback.push({ level: 'bad', text: '左右板角度差较大，可能有八字、板尾外甩或重心没有压到外板。' });
-
-      if (absAvg < 5) feedback.push({ level: 'warn', text: '平均立刃角偏小，当前更像平板滑行；练习时可以逐步增加脚踝主动立刃。' });
-      if (Math.abs((l.rr || 0) - (r.rr || 0)) > 55) feedback.push({ level: 'warn', text: '左右 Roll 角速度差较大，换刃动作可能不同步。' });
-      if (Number.isFinite(load.leftRatio)) feedback.push({ level: 'info', text: `承重估计偏向：${load.dominant}。这是趋势估计，不是真实压力。` });
-      if (l.cal !== 1 || r.cal !== 1) feedback.push({ level: 'info', text: '至少有一个节点还没有完成静止校准，角度只能作为临时参考。' });
-
-      return { hasBoth, sync, avgEdge: absAvg, edgeDiff, globalPhase, turnText, edgeChanges, load, feedback };
-    }
-
-    function badgeClass(score) {
-      if (!Number.isFinite(score)) return 'badge info';
-      if (score >= 82) return 'badge good';
-      if (score >= 60) return 'badge warn';
-      return 'badge bad';
-    }
-
-    function flashEvent(text) {
-      el.eventFlash.textContent = text;
-      el.eventFlash.classList.add('show');
-      clearTimeout(flashEvent.timer);
-      flashEvent.timer = setTimeout(() => el.eventFlash.classList.remove('show'), 260);
+    function setScore(elValue, elBadge, elBar, score, inverted = false) {
+      elValue.textContent = Number.isFinite(score) ? String(Math.round(score)) : '--';
+      elBadge.textContent = scoreText(score, inverted);
+      elBadge.className = scoreClass(score, inverted);
+      const pct = Number.isFinite(score) ? clip(score, 0, 100) : 0;
+      elBar.style.width = `${pct}%`;
+      elBar.style.background = inverted
+        ? (score <= 30 ? 'var(--green)' : score <= 60 ? 'var(--amber)' : 'var(--red)')
+        : (score >= 75 ? 'var(--green)' : score >= 55 ? 'var(--amber)' : 'var(--red)');
     }
 
     function updateUI() {
-      const l = boards.L.data;
-      const r = boards.R.data;
-      const metrics = computeMetrics();
-      const connected = getConnectedBoards().map(b => b.id).join(', ') || '无';
+      const metrics = appState.latestMetrics || computeMetrics();
+      const connected = connectedList();
+      const legPairReady = hasLegPair();
+      const waistReady = hasWaist();
+      const hzs = metrics.sampleHz || { W: 0, L: 0, R: 0 };
+      const avgHz = mean(Object.values(hzs));
 
-      el.connectLeftBtn.textContent = boards.L.connected ? '断开左板' : '连接左板';
-      el.connectRightBtn.textContent = boards.R.connected ? '断开右板' : '连接右板';
-      el.connectLeftBtn.className = boards.L.connected ? 'danger' : '';
-      el.connectRightBtn.className = boards.R.connected ? 'danger' : '';
-      el.leftDot.className = boards.L.connected ? 'dot on' : 'dot';
-      el.rightDot.className = boards.R.connected ? 'dot on' : 'dot';
-
-      el.status.textContent = `已连接：${connected}${appState.logging ? '，记录中' : ''}`;
-
-      el.syncScore.textContent = Number.isFinite(metrics.sync) ? `${metrics.sync.toFixed(0)}` : '--';
-      el.syncBadge.textContent = Number.isFinite(metrics.sync) ? (metrics.sync >= 82 ? '好' : metrics.sync >= 60 ? '一般' : '偏差') : '--';
-      el.syncBadge.className = badgeClass(metrics.sync);
-
-      el.globalPhase.textContent = metrics.globalPhase;
-      el.phaseBadge.textContent = metrics.globalPhase;
-      el.phaseBadge.className = metrics.globalPhase === '板角分离' ? 'badge bad' : metrics.globalPhase === '换刃' ? 'badge info' : 'badge';
-      el.turnText.textContent = metrics.turnText;
-      el.avgEdge.textContent = fmtDeg(metrics.avgEdge);
-      el.edgeChanges.textContent = String(metrics.edgeChanges || 0);
-      if (Number.isFinite(metrics.load?.leftRatio)) {
-        const leftPct = metrics.load.leftRatio * 100;
-        const rightPct = 100 - leftPct;
-        el.loadGuess.textContent = `${metrics.load.dominant} · 左 ${leftPct.toFixed(0)}% / 右 ${rightPct.toFixed(0)}%`;
-        el.loadDetail.textContent = `${metrics.load.reason} · 可信度 ${metrics.load.confidence}`;
-        el.loadLeftBar.style.width = `${leftPct}%`;
-        el.loadRightBar.style.width = `${rightPct}%`;
-        el.loadConfidenceBadge.textContent = metrics.load.confidence;
-        el.loadConfidenceBadge.className = metrics.load.confidence === '低' ? 'badge warn' : 'badge info';
+      el.status.textContent = connected.length
+        ? `已连接：${connected.join('、')}`
+        : '至少连接左小腿和右小腿 IMU；腰部 IMU 可选';
+      el.recordingPill.textContent = appState.logging ? '记录中' : '未记录';
+      el.recordingPill.className = appState.logging ? 'pill good' : 'pill';
+      el.hzPill.textContent = `${Number.isFinite(avgHz) ? avgHz.toFixed(0) : 0} Hz`;
+      if (legPairReady && waistReady) {
+        el.healthPill.textContent = '三节点模式';
+        el.healthPill.className = 'pill good';
+      } else if (legPairReady) {
+        el.healthPill.textContent = '双腿模式';
+        el.healthPill.className = 'pill good';
       } else {
-        el.loadGuess.textContent = '--';
-        el.loadDetail.textContent = metrics.load?.reason || '等待左右板数据';
-        el.loadLeftBar.style.width = '50%';
-        el.loadRightBar.style.width = '50%';
-        el.loadConfidenceBadge.textContent = '--';
-        el.loadConfidenceBadge.className = 'badge info';
+        el.healthPill.textContent = `${connected.length}/2 腿部节点`;
+        el.healthPill.className = 'pill warn';
       }
 
-      el.leftEdge.textContent = fmtDeg(l.ed);
-      el.rightEdge.textContent = fmtDeg(r.ed);
-      el.leftPhase.textContent = phaseToCN(l.ph);
-      el.rightPhase.textContent = phaseToCN(r.ph);
-      const leftSpot = estimateFootSpot(l);
-      const rightSpot = estimateFootSpot(r);
-      el.leftFootSpot.textContent = leftSpot.label;
-      el.rightFootSpot.textContent = rightSpot.label;
-      el.leftFootDetail.textContent = leftSpot.detail;
-      el.rightFootDetail.textContent = rightSpot.detail;
+      updateConnectionButton('W', el.connectWaistBtn, '腰部');
+      updateConnectionButton('L', el.connectLeftBtn, '左腿');
+      updateConnectionButton('R', el.connectRightBtn, '右腿');
 
-      el.leftMeta.textContent = boards.L.connected
-        ? `温度 ${fmtSmall(l.tp, '°C')} · 角速度 ${fmtSmall(l.rr, '°/s')} · ${l.cal ? '已校准' : '未校准'}`
-        : '未连接';
-      el.rightMeta.textContent = boards.R.connected
-        ? `温度 ${fmtSmall(r.tp, '°C')} · 角速度 ${fmtSmall(r.rr, '°/s')} · ${r.cal ? '已校准' : '未校准'}`
-        : '未连接';
+      setScore(el.backwardScore, el.backwardBadge, el.backwardBar, metrics.posture.backwardLeanScore, true);
+      el.backwardDetail.textContent = metrics.posture.detail;
+      setScore(el.rotationScore, el.rotationBadge, el.rotationBar, metrics.rotation.score, false);
+      el.rotationDetail.textContent = metrics.rotation.detail;
+      setScore(el.comScore, el.comBadge, el.comBar, metrics.com.score, false);
+      el.comDetail.textContent = metrics.com.detail;
 
-      el.leftRaw.textContent = boards.L.lastPacketText || '--';
-      el.rightRaw.textContent = boards.R.lastPacketText || '--';
-
-      el.insight.innerHTML = '';
-      metrics.feedback.slice(0, 4).forEach(item => {
-        const div = document.createElement('div');
-        div.className = `feedback ${item.level}`;
-        div.textContent = item.text;
-        el.insight.appendChild(div);
-      });
-
-      if (metrics.edgeChanges > appState.lastEventCount) {
-        appState.lastEventCount = metrics.edgeChanges;
-        flashEvent('换刃');
+      if (metrics.load.ready) {
+        el.loadBias.textContent = metrics.load.label;
+        el.loadBadge.textContent = '趋势';
+        el.loadBadge.className = Math.abs(metrics.load.bias) < 0.15 ? 'pill good' : 'pill warn';
+        el.leftBiasFill.style.width = `${metrics.load.leftRatio * 100}%`;
+        el.rightBiasFill.style.width = `${metrics.load.rightRatio * 100}%`;
+        el.loadDetail.textContent = metrics.load.detail;
+      } else {
+        el.loadBias.textContent = '--';
+        el.loadBadge.textContent = '估算';
+        el.loadBadge.className = 'pill';
+        el.leftBiasFill.style.width = '50%';
+        el.rightBiasFill.style.width = '50%';
+        el.loadDetail.textContent = metrics.load.detail;
       }
+
+      renderSensor('W', el.waistDot, el.waistValue, el.waistMeta);
+      renderSensor('L', el.leftDot, el.leftValue, el.leftMeta);
+      renderSensor('R', el.rightDot, el.rightValue, el.rightMeta);
+
+      el.recordCount.textContent = String(appState.logCount);
+      el.recordMeta.textContent = appState.logging
+        ? `${appState.sessionName} · ${formatTime(appState.sessionStartedAt)} · ${appState.featureCount} 条特征`
+        : `${appState.featureCount} 条特征记录`;
+      if (Number.isFinite(metrics.posture.trunkShinAngleDiff)) {
+        el.posturePill.textContent = `躯干-胫骨 ${metrics.posture.trunkShinAngleDiff.toFixed(1)}°`;
+        el.posturePill.className = metrics.posture.trunkShinAngleDiff < 12 ? 'pill good' : 'pill warn';
+      } else {
+        el.posturePill.textContent = legPairReady ? '双腿模式' : '姿态 --';
+        el.posturePill.className = legPairReady ? 'pill info' : 'pill warn';
+      }
+      el.phasePill.textContent = metrics.com.ready ? `重心 ${metrics.com.direction}` : '腰部可选';
+
+      renderFeedback(metrics);
     }
 
-    function applyBoardData(board, data) {
-      // 固件会带 id 字段；如果烧录时忘了改左右，也允许网页连接按钮强制归入当前板。
-      board.data = { ...board.data, ...data };
-      board.lastSeen = Date.now();
-      board.lastPacketText = JSON.stringify(data).slice(0, 86);
+    function updateConnectionButton(id, button, label) {
+      button.textContent = sensors[id].connected ? `断开${label}` : `连接${label}`;
+      button.className = sensors[id].connected ? 'danger' : '';
+    }
 
-      if (Number.isFinite(Number(board.data.ed))) {
-        pushPoint(board.id === 'L' ? appState.chartLeft : appState.chartRight, Number(board.data.ed));
+    function renderSensor(id, dot, value, meta) {
+      const sensor = sensors[id];
+      const last = sensor.last;
+      const fresh = last && Date.now() - sensor.lastSeen < 1500;
+      dot.className = sensor.connected && fresh ? 'dot on' : 'dot';
+      if (!last) {
+        value.textContent = '--';
+        meta.textContent = sensor.connected ? '等待数据' : (id === 'W' ? '未连接，可选增强' : '未连接');
+        return;
+      }
+      value.textContent = id === 'W'
+        ? `${last.roll.toFixed(1)}°`
+        : `${last.pitch.toFixed(1)}°`;
+      meta.textContent = `seq ${last.seq} · ${sampleHz(id).toFixed(0)} Hz · ${last.cal ? '已校准' : '未校准'}`;
+    }
+
+    function renderFeedback(metrics) {
+      const items = [];
+      const legPairReady = hasLegPair();
+      const waistReady = hasWaist();
+      if (!legPairReady) {
+        items.push({ level: 'info', text: '先连接左小腿和右小腿 IMU；腰部 IMU 可以后续再加。' });
+      } else if (!waistReady) {
+        items.push({ level: 'info', text: '当前为双腿模式：可计算左右转腿一致性；后坐、重心转换、承重趋势需要腰部 IMU。' });
+      } else if (!metrics.posture.ready) {
+        items.push({ level: 'info', text: '腰部和左右小腿已连接，静止校准后开始记录。' });
+      } else if (metrics.posture.backwardLeanScore > 65) {
+        items.push({ level: 'bad', text: '后坐风险偏高：小腿前倾不足或躯干与胫骨夹角过大。' });
+      } else if (metrics.posture.backwardLeanScore > 40) {
+        items.push({ level: 'warn', text: '站姿略偏保守：保持胫骨持续向前压，避免重心回到脚跟。' });
+      } else {
+        items.push({ level: 'good', text: '基础站姿稳定，后坐风险较低。' });
       }
 
-      if (appState.logging) {
-        const record = {
-          ts: Date.now(),
-          side: board.id,
-          ...data
-        };
-        appState.logRecords.push(record);
-        if (IS_ANDROID_APP) {
-          window.SkiAndroid.appendLogLine(JSON.stringify(record));
+      if (metrics.rotation.ready) {
+        if (metrics.rotation.score < 55) {
+          items.push({ level: 'warn', text: '左右转腿不够一致：观察峰值、累计角度和启动时机差。' });
+        } else {
+          items.push({ level: 'good', text: '左右小腿转动节奏基本一致。' });
         }
       }
 
-      updateUI();
+      if (metrics.com.ready) {
+        if (metrics.com.score < 55) {
+          items.push({ level: 'warn', text: '重心转换质量偏低：可能存在移动不明显、腿腰相位差大或转换不平顺。' });
+        } else {
+          items.push({ level: 'good', text: '腰部重心移动趋势清晰，转换相对平顺。' });
+        }
+      }
+
+      if (metrics.load.ready && Math.abs(metrics.load.bias) > 0.25) {
+        items.push({ level: 'info', text: `左右承重趋势${metrics.load.label}。这是 IMU 估算，不代表真实足底压力。` });
+      }
+
+      el.feedbackList.innerHTML = '';
+      items.slice(0, 5).forEach(item => {
+        const div = document.createElement('div');
+        div.className = `feedback ${item.level}`;
+        div.textContent = item.text;
+        el.feedbackList.appendChild(div);
+      });
     }
 
     window.AndroidBle = {
       handleNativeConnection(id, connected) {
-        const board = boards[id];
-        if (!board) return;
-        board.connected = connected;
+        if (!sensors[id]) return;
+        sensors[id].connected = connected;
         if (!connected) {
-          board.device = null;
-          board.server = null;
-          board.service = null;
-          board.txChar = null;
-          board.rxChar = null;
-          board.buffer = '';
+          sensors[id].device = null;
+          sensors[id].server = null;
+          sensors[id].service = null;
+          sensors[id].txChar = null;
+          sensors[id].rxChar = null;
+          sensors[id].buffer = '';
         }
         updateUI();
       },
       handleNativeLine(id, line) {
-        const board = boards[id];
-        if (!board) return;
-        board.connected = true;
         try {
-          applyBoardData(board, JSON.parse(line));
+          const sample = parsePacket(line, id);
+          applySample(sample);
         } catch (err) {
-          console.log('Native JSON parse failed:', line, err);
+          console.log('packet parse failed', line, err);
         }
       },
       handleNativeStatus(text) {
@@ -724,161 +1301,247 @@
       }
     };
 
-    function handleNotify(board, event) {
+    function handleNotify(sensor, event) {
       const text = new TextDecoder().decode(event.target.value);
-      board.buffer += text;
-
+      sensor.buffer += text;
       let idx;
-      while ((idx = board.buffer.indexOf('\n')) >= 0) {
-        const line = board.buffer.slice(0, idx).trim();
-        board.buffer = board.buffer.slice(idx + 1);
+      while ((idx = sensor.buffer.indexOf('\n')) >= 0) {
+        const line = sensor.buffer.slice(0, idx).trim();
+        sensor.buffer = sensor.buffer.slice(idx + 1);
         if (!line) continue;
-
         try {
-          applyBoardData(board, JSON.parse(line));
+          applySample(parsePacket(line, sensor.id));
         } catch (err) {
-          console.log('JSON parse failed:', line, err);
+          console.log('packet parse failed', line, err);
         }
       }
-
-      // 防止异常分包导致缓存无限增长。
-      if (board.buffer.length > 1500) {
-        board.buffer = board.buffer.slice(-300);
-      }
+      if (sensor.buffer.length > 1200) sensor.buffer = sensor.buffer.slice(-300);
     }
 
-    async function connectBoard(id) {
+    async function connectSensor(id) {
+      const sensor = sensors[id];
       if (IS_ANDROID_APP) {
-        if (boards[id].connected) {
+        if (sensor.connected) {
           window.SkiAndroid.disconnectBoard(id);
         } else {
           window.SkiAndroid.connectBoard(id);
-          el.status.textContent = `正在连接 ${id} 板...`;
+          el.status.textContent = `正在连接${ROLES[id].label}...`;
         }
         return;
       }
 
       if (!navigator.bluetooth) {
-        alert('当前浏览器不支持 Web Bluetooth。建议使用 Android Chrome 或桌面 Chrome，并通过 HTTPS 或 localhost 打开页面。');
+        alert('当前浏览器不支持 Web Bluetooth，请使用 Android App 或 Chrome。');
         return;
       }
 
-      const board = boards[id];
-
-      if (board.connected) {
-        await disconnectBoard(id);
+      if (sensor.connected) {
+        await disconnectSensor(id);
         return;
       }
 
-      board.device = await navigator.bluetooth.requestDevice({
+      sensor.device = await navigator.bluetooth.requestDevice({
         filters: [{ services: [SERVICE_UUID] }],
         optionalServices: [SERVICE_UUID]
       });
-
-      board.device.addEventListener('gattserverdisconnected', () => {
-        board.connected = false;
-        board.device = null;
-        board.server = null;
-        board.service = null;
-        board.txChar = null;
-        board.rxChar = null;
-        board.buffer = '';
+      sensor.device.addEventListener('gattserverdisconnected', () => {
+        sensor.connected = false;
         updateUI();
       });
 
-      board.server = await board.device.gatt.connect();
-      board.service = await board.server.getPrimaryService(SERVICE_UUID);
-      board.txChar = await board.service.getCharacteristic(TX_UUID);
-      board.rxChar = await board.service.getCharacteristic(RX_UUID);
-
-      await board.txChar.startNotifications();
-      board.txChar.addEventListener('characteristicvaluechanged', event => handleNotify(board, event));
-
-      board.connected = true;
-      board.buffer = '';
+      sensor.server = await sensor.device.gatt.connect();
+      sensor.service = await sensor.server.getPrimaryService(SERVICE_UUID);
+      sensor.txChar = await sensor.service.getCharacteristic(TX_UUID);
+      sensor.rxChar = await sensor.service.getCharacteristic(RX_UUID);
+      await sensor.txChar.startNotifications();
+      sensor.txChar.addEventListener('characteristicvaluechanged', event => handleNotify(sensor, event));
+      sensor.connected = true;
       updateUI();
     }
 
-    async function disconnectBoard(id) {
+    async function disconnectSensor(id) {
       if (IS_ANDROID_APP) {
         window.SkiAndroid.disconnectBoard(id);
         return;
       }
-
-      const board = boards[id];
-      try {
-        if (board.device && board.device.gatt.connected) {
-          board.device.gatt.disconnect();
-        }
-      } finally {
-        board.connected = false;
-        board.device = null;
-        board.server = null;
-        board.service = null;
-        board.txChar = null;
-        board.rxChar = null;
-        board.buffer = '';
-        updateUI();
-      }
+      const sensor = sensors[id];
+      if (sensor.device?.gatt?.connected) sensor.device.gatt.disconnect();
+      sensor.connected = false;
+      updateUI();
     }
 
     async function sendCalibration() {
       if (IS_ANDROID_APP) {
         window.SkiAndroid.sendCalibration();
-        flashEvent('校准');
         return;
       }
-
       const payload = new TextEncoder().encode('CAL\n');
-      const targets = getConnectedBoards().filter(b => b.rxChar);
-
-      if (targets.length === 0) {
-        alert('请先连接至少一个 IMU 节点。');
+      const targets = Object.values(sensors).filter(s => s.connected && s.rxChar);
+      if (!targets.length) {
+        alert('请先连接至少一个 IMU。');
         return;
       }
-
-      for (const board of targets) {
-        await board.rxChar.writeValue(payload);
+      for (const sensor of targets) {
+        await sensor.rxChar.writeValue(payload);
       }
-
-      flashEvent('校准');
-      el.status.textContent = '已发送静止校准指令。请保持双板平放、平行、静止约 1 秒。';
     }
 
-    el.connectLeftBtn.addEventListener('click', async () => {
-      try { await connectBoard('L'); }
-      catch (err) {
-        if (!String(err.message || '').includes('User cancelled')) alert('左板连接失败：' + err.message);
+    function normalizeLogItem(item) {
+      if (typeof item === 'string') {
+        return {
+          fileName: item,
+          sessionName: item,
+          startedAt: 0,
+          lastModified: 0,
+          size: 0,
+          rawCount: 0,
+          featureCount: 0
+        };
       }
-    });
+      return {
+        fileName: item.fileName || item.name || '',
+        sessionName: item.sessionName || item.fileName || item.name || '未命名记录',
+        startedAt: Number(item.startedAt || 0),
+        lastModified: Number(item.lastModified || 0),
+        size: Number(item.size || 0),
+        rawCount: Number(item.rawCount || 0),
+        featureCount: Number(item.featureCount || 0)
+      };
+    }
 
-    el.connectRightBtn.addEventListener('click', async () => {
-      try { await connectBoard('R'); }
-      catch (err) {
-        if (!String(err.message || '').includes('User cancelled')) alert('右板连接失败：' + err.message);
+    function refreshLogList() {
+      if (IS_ANDROID_APP) {
+        try {
+          const raw = window.SkiAndroid.listLogs();
+          appState.logs = JSON.parse(raw || '[]').map(normalizeLogItem);
+        } catch (err) {
+          console.log('list logs failed', err);
+          appState.logs = [];
+        }
       }
-    });
+      renderLogList();
+    }
 
-    el.calibrateBtn.addEventListener('click', async () => {
-      try { await sendCalibration(); }
-      catch (err) { alert('发送校准失败：' + err.message); }
-    });
+    function renderLogList() {
+      if (!el.logList) return;
+      el.logList.innerHTML = '';
+      if (!appState.logs.length) {
+        const empty = document.createElement('div');
+        empty.className = 'feedback info';
+        empty.textContent = IS_ANDROID_APP ? '暂无历史记录。开始记录后会出现在这里。' : '浏览器模式不保存历史列表，Android App 中可管理多条记录。';
+        el.logList.appendChild(empty);
+        return;
+      }
 
-    el.startLogBtn.addEventListener('click', () => {
-      appState.logRecords = [];
+      appState.logs.forEach(item => {
+        const row = document.createElement('div');
+        row.className = item.fileName === appState.selectedLogName ? 'logRow selected' : 'logRow';
+        row.addEventListener('click', () => {
+          appState.selectedLogName = item.fileName;
+          el.renameInput.value = item.sessionName;
+          renderLogList();
+        });
+
+        const info = document.createElement('div');
+        const name = document.createElement('div');
+        name.className = 'logName';
+        name.textContent = item.sessionName;
+        const meta = document.createElement('div');
+        meta.className = 'logMeta';
+        meta.textContent = `${formatTime(item.startedAt || item.lastModified)} · ${formatSize(item.size)} · raw ${item.rawCount} · features ${item.featureCount}`;
+        info.appendChild(name);
+        info.appendChild(meta);
+
+        const tag = document.createElement('span');
+        tag.className = 'pill info';
+        tag.textContent = item.fileName === appState.selectedLogName ? '已选' : '选择';
+
+        row.appendChild(info);
+        row.appendChild(tag);
+        el.logList.appendChild(row);
+      });
+    }
+
+    function renameSelectedLog() {
+      if (!IS_ANDROID_APP) {
+        alert('浏览器模式不支持持久化重命名，请在 Android App 中操作。');
+        return;
+      }
+      if (!appState.selectedLogName) {
+        alert('请先选择一条记录。');
+        return;
+      }
+      const nextName = cleanSessionName(el.renameInput.value);
+      const ok = window.SkiAndroid.renameLog(appState.selectedLogName, nextName);
+      if (!ok) {
+        alert('重命名失败，可能记录正在写入或文件不存在。');
+        return;
+      }
+      appState.selectedLogName = '';
+      refreshLogList();
+    }
+
+    function deleteSelectedLog() {
+      if (!IS_ANDROID_APP) {
+        alert('浏览器模式不支持删除历史记录。');
+        return;
+      }
+      if (!appState.selectedLogName) {
+        alert('请先选择一条记录。');
+        return;
+      }
+      if (!confirm('确定删除选中的记录吗？该操作不可恢复。')) return;
+      const ok = window.SkiAndroid.deleteLog(appState.selectedLogName);
+      if (!ok) {
+        alert('删除失败，可能记录正在写入或文件不存在。');
+        return;
+      }
+      appState.selectedLogName = '';
+      el.renameInput.value = '';
+      refreshLogList();
+    }
+
+    function exportSelectedLog() {
+      if (!IS_ANDROID_APP) {
+        exportLog();
+        return;
+      }
+      if (!appState.selectedLogName) {
+        alert('请先选择一条记录。');
+        return;
+      }
+      window.SkiAndroid.exportLogByName(appState.selectedLogName);
+    }
+
+    function startLog() {
+      appState.sessionName = cleanSessionName(el.sessionNameInput.value);
+      appState.sessionStartedAt = Date.now();
       appState.logging = true;
-      if (IS_ANDROID_APP) window.SkiAndroid.startLog();
+      appState.logRecords = [];
+      appState.logCount = 0;
+      appState.featureCount = 0;
+      if (IS_ANDROID_APP) window.SkiAndroid.startLog(appState.sessionName);
+      logLine({
+        kind: 'session_meta',
+        hostTs: appState.sessionStartedAt,
+        startedAt: appState.sessionStartedAt,
+        sessionName: appState.sessionName,
+        schema: 'ski_imu_jsonl_v0',
+        roles: ROLES,
+        algorithmVersion: 'phone-rules-0.1.0'
+      });
       updateUI();
-    });
+    }
 
-    el.stopLogBtn.addEventListener('click', () => {
+    function stopLog() {
       appState.logging = false;
       if (IS_ANDROID_APP) window.SkiAndroid.stopLog();
+      refreshLogList();
       updateUI();
-    });
+    }
 
-    el.downloadLogBtn.addEventListener('click', () => {
-      const content = appState.logRecords.map(row => JSON.stringify(row)).join('\n');
+    function exportLog() {
+      const content = appState.logRecords.join('\n');
       if (IS_ANDROID_APP) {
         window.SkiAndroid.exportLog(content);
         return;
@@ -887,73 +1550,141 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `ski_imu_log_${Date.now()}.jsonl`;
+      a.download = `ski_imu_${cleanSessionName(appState.sessionName).replace(/[\\/:*?"<>|\\s]+/g, '_')}_${Date.now()}.jsonl`;
       a.click();
       URL.revokeObjectURL(url);
-    });
+    }
 
-    el.openReplayBtn.addEventListener('click', () => {
-      window.location.href = 'replay.html';
-    });
+    el.connectWaistBtn.addEventListener('click', () => connectSensor('W').catch(e => alert(e.message)));
+    el.connectLeftBtn.addEventListener('click', () => connectSensor('L').catch(e => alert(e.message)));
+    el.connectRightBtn.addEventListener('click', () => connectSensor('R').catch(e => alert(e.message)));
+    el.calibrateBtn.addEventListener('click', () => sendCalibration().catch(e => alert(e.message)));
+    el.startLogBtn.addEventListener('click', startLog);
+    el.stopLogBtn.addEventListener('click', stopLog);
+    el.downloadLogBtn.addEventListener('click', exportLog);
+    el.openReplayBtn.addEventListener('click', () => { window.location.href = 'replay.html'; });
+    el.refreshLogsBtn.addEventListener('click', refreshLogList);
+    el.renameLogBtn.addEventListener('click', renameSelectedLog);
+    el.exportSelectedLogBtn.addEventListener('click', exportSelectedLog);
+    el.deleteLogBtn.addEventListener('click', deleteSelectedLog);
 
-    // ============================================================
-    // Three.js 双雪板姿态展示
-    // ============================================================
+    setInterval(() => {
+      const metrics = computeMetrics();
+      appState.latestMetrics = metrics;
+      if (appState.logging) {
+        appState.featureCount++;
+        logLine(metrics);
+      }
+      updateUI();
+    }, 500);
+
+    setInterval(() => {
+      for (const sensor of Object.values(sensors)) {
+        if (sensor.connected && Date.now() - sensor.lastSeen > 2500) {
+          sensor.connected = false;
+        }
+      }
+      updateUI();
+    }, 1000);
+
+    const chartCanvas = document.getElementById('chartCanvas');
+    const chartCtx = chartCanvas.getContext('2d');
+
+    function resizeChart() {
+      const rect = chartCanvas.getBoundingClientRect();
+      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      chartCanvas.width = Math.max(1, rect.width * ratio);
+      chartCanvas.height = Math.max(1, rect.height * ratio);
+      chartCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
+
+    function drawChartLine(values, color, scale) {
+      const w = chartCanvas.clientWidth;
+      const h = chartCanvas.clientHeight;
+      if (values.length < 2) return;
+      chartCtx.beginPath();
+      chartCtx.strokeStyle = color;
+      chartCtx.lineWidth = 2;
+      for (let i = 0; i < values.length; i++) {
+        const x = i / Math.max(1, MAX_CHART_POINTS - 1) * w;
+        const y = h / 2 - clip(values[i] / scale, -1, 1) * h * 0.42;
+        if (i === 0) chartCtx.moveTo(x, y);
+        else chartCtx.lineTo(x, y);
+      }
+      chartCtx.stroke();
+    }
+
+    function drawChart() {
+      const w = chartCanvas.clientWidth;
+      const h = chartCanvas.clientHeight;
+      chartCtx.clearRect(0, 0, w, h);
+      chartCtx.strokeStyle = 'rgba(255,255,255,0.12)';
+      chartCtx.lineWidth = 1;
+      chartCtx.beginPath();
+      chartCtx.moveTo(0, h / 2);
+      chartCtx.lineTo(w, h / 2);
+      chartCtx.stroke();
+      drawChartLine(appState.chart.waistRoll, ROLES.W.color, 35);
+      drawChartLine(appState.chart.leftYaw, ROLES.L.color, 220);
+      drawChartLine(appState.chart.rightYaw, ROLES.R.color, 220);
+      chartCtx.fillStyle = ROLES.W.color;
+      chartCtx.fillText('腰部 roll', 10, 18);
+      chartCtx.fillStyle = ROLES.L.color;
+      chartCtx.fillText('左腿 yaw rate', 92, 18);
+      chartCtx.fillStyle = ROLES.R.color;
+      chartCtx.fillText('右腿 yaw rate', 206, 18);
+      requestAnimationFrame(drawChart);
+    }
+
     const threeCanvas = document.getElementById('threeCanvas');
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x101820);
-
-    const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 1000);
-    camera.position.set(0, 4.4, 8.8);
-    camera.lookAt(0, 0, 0);
-
+    scene.background = new THREE.Color(0x0e171b);
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+    camera.position.set(0, 3.8, 8);
+    camera.lookAt(0, 1.2, 0);
     const renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.68));
+    const light = new THREE.DirectionalLight(0xffffff, 0.92);
+    light.position.set(4, 7, 5);
+    scene.add(light);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.62));
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.95);
-    keyLight.position.set(4, 8, 6);
-    scene.add(keyLight);
-
-    const snow = new THREE.Mesh(
-      new THREE.PlaneGeometry(12, 10),
-      new THREE.MeshPhongMaterial({ color: 0xdfeeed, shininess: 16 })
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(12, 9),
+      new THREE.MeshPhongMaterial({ color: 0xdcebe7, shininess: 20 })
     );
-    snow.rotation.x = -Math.PI / 2;
-    snow.position.y = -0.12;
-    scene.add(snow);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -0.04;
+    scene.add(floor);
 
-    const skiGroups = {
-      L: createSkiMesh(-0.55, 0x2f80ed),
-      R: createSkiMesh(0.55, 0xf97316)
-    };
+    const rig = new THREE.Group();
+    scene.add(rig);
+    const waistMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1.25, 0.42, 0.58),
+      new THREE.MeshPhongMaterial({ color: 0x38bdf8, shininess: 60 })
+    );
+    waistMesh.position.set(0, 2.45, 0);
+    rig.add(waistMesh);
+    const leftShin = createLimb(-0.45, ROLES.L.color);
+    const rightShin = createLimb(0.45, ROLES.R.color);
+    rig.add(leftShin.group, rightShin.group);
 
-    function createSkiMesh(x, color) {
+    function createLimb(x, color) {
       const group = new THREE.Group();
-      group.position.x = x;
-
-      const ski = new THREE.Mesh(
-        new THREE.BoxGeometry(0.32, 4.8, 0.08),
-        new THREE.MeshPhongMaterial({ color, shininess: 70 })
+      group.position.set(x, 1.05, 0);
+      const shin = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 2.0, 0.18),
+        new THREE.MeshPhongMaterial({ color, shininess: 50 })
       );
-      ski.position.y = 0;
-      group.add(ski);
-
+      shin.position.y = 0;
       const boot = new THREE.Mesh(
-        new THREE.BoxGeometry(0.5, 0.86, 0.28),
-        new THREE.MeshPhongMaterial({ color: 0x23313b, shininess: 40 })
+        new THREE.BoxGeometry(0.42, 0.16, 0.92),
+        new THREE.MeshPhongMaterial({ color: 0x26343a, shininess: 30 })
       );
-      boot.position.z = 0.18;
-      group.add(boot);
-
-      const edge = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.BoxGeometry(0.32, 4.8, 0.08)),
-        new THREE.LineBasicMaterial({ color: 0xffffff })
-      );
-      group.add(edge);
-
-      scene.add(group);
-      return group;
+      boot.position.y = -1.05;
+      boot.position.z = 0.24;
+      group.add(shin, boot);
+      return { group, shin, boot };
     }
 
     function resize3D() {
@@ -964,95 +1695,36 @@
     }
 
     function animate3D() {
-      // ed 是相对校准零点的 Roll 角，转成弧度后映射到雪板侧倾。
-      for (const id of ['L', 'R']) {
-        const data = boards[id].data;
-        const targetRoll = Number.isFinite(Number(data.ed)) ? Number(data.ed) * Math.PI / 180 : 0;
-        const targetPitch = Number.isFinite(Number(data.pd)) ? Number(data.pd) * Math.PI / 360 : 0;
-        skiGroups[id].rotation.y += (targetRoll - skiGroups[id].rotation.y) * 0.18;
-        skiGroups[id].rotation.x += (targetPitch - skiGroups[id].rotation.x) * 0.12;
+      const w = sensors.W.last;
+      const l = sensors.L.last;
+      const r = sensors.R.last;
+      if (w) {
+        waistMesh.rotation.z += ((-w.roll * Math.PI / 180) - waistMesh.rotation.z) * 0.15;
+        waistMesh.rotation.x += ((w.pitch * Math.PI / 240) - waistMesh.rotation.x) * 0.15;
       }
-
+      if (l) {
+        leftShin.group.rotation.x += ((l.pitch * Math.PI / 180) - leftShin.group.rotation.x) * 0.12;
+        leftShin.group.rotation.z += ((-l.roll * Math.PI / 240) - leftShin.group.rotation.z) * 0.12;
+      }
+      if (r) {
+        rightShin.group.rotation.x += ((r.pitch * Math.PI / 180) - rightShin.group.rotation.x) * 0.12;
+        rightShin.group.rotation.z += ((-r.roll * Math.PI / 240) - rightShin.group.rotation.z) * 0.12;
+      }
       renderer.render(scene, camera);
       requestAnimationFrame(animate3D);
     }
 
-    // ============================================================
-    // 底部曲线：左右立刃角历史
-    // ============================================================
-    const chartCanvas = document.getElementById('chartCanvas');
-    const chartCtx = chartCanvas.getContext('2d');
-
-    function resizeChart() {
-      const rect = chartCanvas.getBoundingClientRect();
-      chartCanvas.width = rect.width * window.devicePixelRatio;
-      chartCanvas.height = rect.height * window.devicePixelRatio;
-      chartCtx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
-    }
-
-    function drawLine(arr, color) {
-      const w = chartCanvas.clientWidth;
-      const h = chartCanvas.clientHeight;
-      if (arr.length < 2) return;
-
-      chartCtx.beginPath();
-      chartCtx.strokeStyle = color;
-      chartCtx.lineWidth = 2;
-
-      for (let i = 0; i < arr.length; i++) {
-        const x = (i / (MAX_POINTS - 1)) * w;
-        const y = h / 2 - (arr[i] / 45) * (h * 0.42);
-        if (i === 0) chartCtx.moveTo(x, y);
-        else chartCtx.lineTo(x, y);
-      }
-
-      chartCtx.stroke();
-    }
-
-    function drawChart() {
-      const w = chartCanvas.clientWidth;
-      const h = chartCanvas.clientHeight;
-      chartCtx.clearRect(0, 0, w, h);
-
-      chartCtx.strokeStyle = 'rgba(255,255,255,0.12)';
-      chartCtx.lineWidth = 1;
-      chartCtx.beginPath();
-      chartCtx.moveTo(0, h / 2);
-      chartCtx.lineTo(w, h / 2);
-      chartCtx.stroke();
-
-      for (const deg of [-30, 30]) {
-        const y = h / 2 - (deg / 45) * (h * 0.42);
-        chartCtx.strokeStyle = 'rgba(255,255,255,0.07)';
-        chartCtx.beginPath();
-        chartCtx.moveTo(0, y);
-        chartCtx.lineTo(w, y);
-        chartCtx.stroke();
-      }
-
-      drawLine(appState.chartLeft, '#60a5fa');
-      drawLine(appState.chartRight, '#fb923c');
-
-      chartCtx.fillStyle = '#60a5fa';
-      chartCtx.fillText('左板立刃角', 10, 18);
-      chartCtx.fillStyle = '#fb923c';
-      chartCtx.fillText('右板立刃角', 100, 18);
-      chartCtx.fillStyle = 'rgba(255,255,255,0.7)';
-      chartCtx.fillText('0°', w - 28, h / 2 - 6);
-
-      requestAnimationFrame(drawChart);
-    }
-
     window.addEventListener('resize', () => {
-      resize3D();
       resizeChart();
+      resize3D();
     });
 
-    resize3D();
     resizeChart();
+    resize3D();
+    refreshLogList();
     updateUI();
-    requestAnimationFrame(animate3D);
     requestAnimationFrame(drawChart);
+    requestAnimationFrame(animate3D);
   </script>
 </body>
 </html>

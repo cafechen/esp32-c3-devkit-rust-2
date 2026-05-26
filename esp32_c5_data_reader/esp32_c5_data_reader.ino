@@ -6,24 +6,23 @@
 #include <NimBLEDevice.h>
 
 // ============================================================
-// 双板滑雪 IMU 节点固件
+// 滑雪动作识别 IMU 节点固件
 // ------------------------------------------------------------
 // 使用方式：
-// 1. 左脚/左雪板烧录前保持 SKI_SENSOR_SIDE 为 "L"。
-// 2. 右脚/右雪板烧录前改成 "R" 再烧录。
+// 1. 腰部/骶骨节点烧录前设置 SKI_SENSOR_SIDE 为 "W"。
+// 2. 左小腿节点烧录前设置为 "L"，右小腿节点烧录前设置为 "R"。
 // 3. 上电后保持传感器静止数秒，固件会自动校准陀螺仪零偏。
-// 4. 打开 index.html，分别连接左右设备，然后点击“静止校准”。
+// 4. 打开 Android 客户端或 index.html，连接三个节点后点击“静止校准”。
 //
 // 重要说明：
-// - 六轴 IMU 没有磁力计，Yaw/航向角会随时间漂移；本程序主要依赖 Roll
-//   判断立刃、换刃和左右同步。
-// - 静止校准会把当前姿态作为“雪板平放零点”，所以校准时两块板要平放、
-//   平行、不要晃动。
+// - 传感器端只做采集、陀螺仪零偏、轻量滤波和基础姿态估计。
+// - 滑雪动作指标、左右对比、窗口分段、评分和模型推理放在手机端完成。
+// - 六轴 IMU 没有磁力计，Yaw/航向角会随时间漂移；Yaw 只作短时间动作相位参考。
 // ============================================================
 
-// ====== 本设备身份：左板 L / 右板 R ======
-// 烧录左板时用 "L"，烧录右板时改为 "R"。
-#define SKI_SENSOR_SIDE "R"
+// ====== 本设备身份：腰部 W / 左小腿 L / 右小腿 R ======
+// 同一份固件分别改这个值后烧录到三个 ESP32。
+#define SKI_SENSOR_SIDE "W"
 
 // ====== 安装方向修正 ======
 // 如果网页中雪板向左倾，立刃角却向右变化，把对应符号从 1 改成 -1。
@@ -39,8 +38,9 @@
 #define I2C_SCL 8
 
 // ====== 采样频率 ======
-// 50Hz 对滑雪动作识别已经够用，BLE 压力也比较小。
-const unsigned long SAMPLE_INTERVAL_MS = 20;
+// 100Hz 采样适合保留原始 IMU 数据，便于后续电脑端回测和重算算法。
+// 如果三路 BLE 在现场不稳定，可以临时改为 20ms，也就是 50Hz。
+const unsigned long SAMPLE_INTERVAL_MS = 10;
 
 // ====== BLE UART UUID，网页端使用同一组 UUID 连接 ======
 #define SERVICE_UUID      "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -106,9 +106,10 @@ float base_yaw = 0;
 bool reference_calibrated = false;
 bool reference_calibration_requested = false;
 
-// 每次检测到换刃就递增，网页端可以用它闪烁事件提示。
+// 每次检测到姿态方向明显切换就递增，主要用于调试和旧页面兼容。
 unsigned long edge_change_count = 0;
 int last_edge_sign = 0;
+unsigned long sample_seq = 0;
 
 enum SkiPhase {
   PHASE_STILL = 0,       // 静止/等待
@@ -439,6 +440,8 @@ void loop() {
     }
   }
 
+  sample_seq++;
+
   float edgeDeg = SKI_EDGE_SIGN * radToDeg(roll - base_roll);
   float pitchDeg = SKI_PITCH_SIGN * radToDeg(pitch - base_pitch);
   float yawDeg = radToDeg(yaw - base_yaw);
@@ -447,9 +450,13 @@ void loop() {
   updateSkiPhase(edgeDeg, rollRateDps);
 
   // 串口输出完整 JSON，方便后续离线分析和调参。
-  // BLE 另发一份更短的 JSON，尽量控制在常见 Web Bluetooth 单次通知长度内。
-  char serialJson[384];
-  char bleJson[192];
+  // BLE 输出紧凑 CSV，减少每条通知长度，手机端再转换成结构化 JSONL 保存。
+  //
+  // BLE 格式：
+  // S,id,seq,ms,ax_mg,ay_mg,az_mg,gx_dps10,gy_dps10,gz_dps10,roll_cd,pitch_cd,yaw_cd,cal
+  // 例：S,W,1024,12345,12,-8,1003,4,-2,1,35,-12,80,1
+  char serialJson[512];
+  char bleLine[160];
   char tempJson[16];
   char humJson[16];
 
@@ -458,7 +465,7 @@ void loop() {
 
   snprintf(
     serialJson, sizeof(serialJson),
-    "{\"id\":\"%s\",\"t\":%.2f,\"tp\":%s,\"h\":%s,"
+    "{\"id\":\"%s\",\"seq\":%lu,\"t\":%.3f,\"ms\":%lu,\"tp\":%s,\"h\":%s,"
     "\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,"
     "\"gx\":%.1f,\"gy\":%.1f,\"gz\":%.1f,"
     "\"am\":%.3f,\"gm\":%.1f,"
@@ -467,10 +474,12 @@ void loop() {
     "\"rr\":%.1f,\"ph\":\"%s\",\"ec\":%lu,"
     "\"cal\":%d,\"imu\":%d}\n",
     SKI_SENSOR_SIDE,
+    sample_seq,
     now / 1000.0f,
+    now,
     tempJson, humJson,
-    filt_ax, filt_ay, filt_az,
-    filt_gx, filt_gy, filt_gz,
+    ax_g, ay_g, az_g,
+    gx_dps, gy_dps, gz_dps,
     acc_mag, gyro_mag,
     roll, pitch, yaw,
     edgeDeg, pitchDeg, yawDeg,
@@ -481,25 +490,32 @@ void loop() {
     imu_ok ? 1 : 0
   );
 
+  int ax_mg = (int)lroundf(ax_g * 1000.0f);
+  int ay_mg = (int)lroundf(ay_g * 1000.0f);
+  int az_mg = (int)lroundf(az_g * 1000.0f);
+  int gx_dps10 = (int)lroundf(gx_dps * 10.0f);
+  int gy_dps10 = (int)lroundf(gy_dps * 10.0f);
+  int gz_dps10 = (int)lroundf(gz_dps * 10.0f);
+  int roll_cd = (int)lroundf(edgeDeg * 100.0f);
+  int pitch_cd = (int)lroundf(pitchDeg * 100.0f);
+  int yaw_cd = (int)lroundf(yawDeg * 100.0f);
+
   snprintf(
-    bleJson, sizeof(bleJson),
-    "{\"id\":\"%s\",\"t\":%.1f,\"tp\":%s,"
-    "\"ed\":%.1f,\"pd\":%.1f,\"rr\":%.1f,\"gm\":%.1f,"
-    "\"ph\":\"%s\",\"ec\":%lu,\"cal\":%d,\"imu\":%d}\n",
+    bleLine, sizeof(bleLine),
+    "S,%s,%lu,%lu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
     SKI_SENSOR_SIDE,
-    now / 1000.0f,
-    tempJson,
-    edgeDeg, pitchDeg, rollRateDps, gyro_mag,
-    phaseName(skiPhase),
-    edge_change_count,
-    reference_calibrated ? 1 : 0,
-    imu_ok ? 1 : 0
+    sample_seq,
+    now,
+    ax_mg, ay_mg, az_mg,
+    gx_dps10, gy_dps10, gz_dps10,
+    roll_cd, pitch_cd, yaw_cd,
+    reference_calibrated ? 1 : 0
   );
 
   Serial.println(serialJson);
 
   if (deviceConnected && txCharacteristic) {
-    txCharacteristic->setValue((uint8_t*)bleJson, strlen(bleJson));
+    txCharacteristic->setValue((uint8_t*)bleLine, strlen(bleLine));
     txCharacteristic->notify();
   }
 }

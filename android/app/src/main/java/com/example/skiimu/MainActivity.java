@@ -36,16 +36,20 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -68,14 +72,19 @@ public class MainActivity extends Activity {
     private File currentLogFile;
     private BufferedWriter currentLogWriter;
     private boolean logging;
+    private int pendingLogLines;
+    private long lastLogFlushMs;
+    private long currentStartedAtMs;
+    private String currentSessionName = "未命名记录";
 
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        boards.put("L", new BoardConnection("L"));
-        boards.put("R", new BoardConnection("R"));
+        boards.put("W", new BoardConnection("W", "腰部 IMU"));
+        boards.put("L", new BoardConnection("L", "左小腿 IMU"));
+        boards.put("R", new BoardConnection("R", "右小腿 IMU"));
 
         BluetoothManager manager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         bluetoothAdapter = manager == null ? null : manager.getAdapter();
@@ -178,7 +187,7 @@ public class MainActivity extends Activity {
         }
 
         stopScan(side);
-        sendStatus("正在扫描 " + side + " 板...");
+        sendStatus("正在扫描 " + board.label + "...");
 
         ScanFilter filter = new ScanFilter.Builder()
                 .setServiceUuid(new ParcelUuid(SERVICE_UUID))
@@ -196,13 +205,16 @@ public class MainActivity extends Activity {
                     name = device.getName();
                 } catch (SecurityException ignored) {
                 }
+                if ((name == null || name.isEmpty()) && result.getScanRecord() != null) {
+                    name = result.getScanRecord().getDeviceName();
+                }
                 String expectedSuffix = "SKI-IMU-" + side;
-                if (name != null && !name.isEmpty() && !name.endsWith(expectedSuffix)) {
+                if (name == null || !name.endsWith(expectedSuffix)) {
                     return;
                 }
 
                 stopScan(side);
-                sendStatus("正在连接 " + (name == null || name.isEmpty() ? side + " 板" : name) + "...");
+                sendStatus("正在连接 " + (name == null || name.isEmpty() ? board.label : name) + "...");
                 board.gatt = device.connectGatt(MainActivity.this, false, board.callback);
             }
 
@@ -256,19 +268,54 @@ public class MainActivity extends Activity {
         }
     }
 
-    private synchronized void startLog() {
+    private String normalizeSessionName(String raw) {
+        if (raw == null) return "未命名记录";
+        String trimmed = raw.trim();
+        return trimmed.isEmpty() ? "未命名记录" : trimmed;
+    }
+
+    private String sanitizeFilePart(String raw) {
+        String value = normalizeSessionName(raw)
+                .replaceAll("[\\\\/:*?\"<>|\\r\\n\\t]", "_")
+                .replaceAll("\\s+", "_");
+        if (value.length() > 32) {
+            value = value.substring(0, 32);
+        }
+        return value.isEmpty() ? "session" : value;
+    }
+
+    private File logsDir() {
+        return new File(getFilesDir(), "logs");
+    }
+
+    private File safeLogFile(String name) {
+        if (name == null || name.contains("/") || name.contains("\\") || name.contains("..")) return null;
+        return new File(logsDir(), name);
+    }
+
+    private synchronized void startLog(String sessionName) {
         closeLogWriter();
         try {
-            File dir = new File(getFilesDir(), "logs");
+            File dir = logsDir();
             if (!dir.exists() && !dir.mkdirs()) {
                 throw new IllegalStateException("无法创建日志目录");
             }
-            currentLogFile = new File(dir, String.format(Locale.US, "ski_imu_log_%d.jsonl", System.currentTimeMillis()));
+            currentStartedAtMs = System.currentTimeMillis();
+            currentSessionName = normalizeSessionName(sessionName);
+            String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date(currentStartedAtMs));
+            currentLogFile = new File(dir, String.format(
+                    Locale.US,
+                    "ski_imu_%s_%s.jsonl",
+                    stamp,
+                    sanitizeFilePart(currentSessionName)
+            ));
             currentLogWriter = new BufferedWriter(new OutputStreamWriter(
                     new FileOutputStream(currentLogFile, false),
                     StandardCharsets.UTF_8
             ));
             logging = true;
+            pendingLogLines = 0;
+            lastLogFlushMs = System.currentTimeMillis();
             sendStatus("正在记录到本机：" + currentLogFile.getName());
         } catch (Exception e) {
             logging = false;
@@ -281,7 +328,13 @@ public class MainActivity extends Activity {
         try {
             currentLogWriter.write(jsonLine);
             currentLogWriter.newLine();
-            currentLogWriter.flush();
+            pendingLogLines++;
+            long now = System.currentTimeMillis();
+            if (pendingLogLines >= 25 || now - lastLogFlushMs >= 1000) {
+                currentLogWriter.flush();
+                pendingLogLines = 0;
+                lastLogFlushMs = now;
+            }
         } catch (Exception e) {
             toast("写入日志失败：" + e.getMessage());
         }
@@ -310,9 +363,11 @@ public class MainActivity extends Activity {
         File source = currentLogFile;
         if ((source == null || !source.exists() || source.length() == 0) && fallbackContent != null) {
             try {
-                File dir = new File(getFilesDir(), "logs");
+                File dir = logsDir();
                 if (!dir.exists()) dir.mkdirs();
-                source = new File(dir, String.format(Locale.US, "ski_imu_log_%d.jsonl", System.currentTimeMillis()));
+                long now = System.currentTimeMillis();
+                String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date(now));
+                source = new File(dir, String.format(Locale.US, "ski_imu_%s_export.jsonl", stamp));
                 try (FileOutputStream out = new FileOutputStream(source)) {
                     out.write(fallbackContent.getBytes(StandardCharsets.UTF_8));
                 }
@@ -336,19 +391,62 @@ public class MainActivity extends Activity {
 
     private synchronized String listLogs() {
         JSONArray array = new JSONArray();
-        File dir = new File(getFilesDir(), "logs");
+        File dir = logsDir();
         File[] files = dir.listFiles((file, name) -> name.endsWith(".jsonl") || name.endsWith(".json"));
         if (files == null) return array.toString();
         Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
         for (File file : files) {
-            array.put(file.getName());
+            array.put(readLogSummary(file));
         }
         return array.toString();
     }
 
+    private JSONObject readLogSummary(File file) {
+        JSONObject obj = new JSONObject();
+        long startedAt = file.lastModified();
+        String sessionName = file.getName();
+        int rawCount = 0;
+        int featureCount = 0;
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(file),
+                StandardCharsets.UTF_8
+        ))) {
+            String line;
+            int inspected = 0;
+            while ((line = reader.readLine()) != null) {
+                inspected++;
+                if (line.contains("\"kind\":\"raw\"")) rawCount++;
+                if (line.contains("\"kind\":\"features\"")) featureCount++;
+                if (line.contains("\"kind\":\"session_meta\"")) {
+                    try {
+                        JSONObject meta = new JSONObject(line);
+                        sessionName = meta.optString("sessionName", sessionName);
+                        startedAt = meta.optLong("startedAt", meta.optLong("hostTs", startedAt));
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (inspected >= 5000) break;
+            }
+        } catch (Exception ignored) {
+        }
+
+        try {
+            obj.put("fileName", file.getName());
+            obj.put("sessionName", sessionName);
+            obj.put("startedAt", startedAt);
+            obj.put("lastModified", file.lastModified());
+            obj.put("size", file.length());
+            obj.put("rawCount", rawCount);
+            obj.put("featureCount", featureCount);
+        } catch (Exception ignored) {
+        }
+        return obj;
+    }
+
     private synchronized String readLog(String name) {
-        if (name == null || name.contains("/") || name.contains("\\")) return "";
-        File file = new File(new File(getFilesDir(), "logs"), name);
+        File file = safeLogFile(name);
+        if (file == null) return "";
         if (!file.exists()) return "";
         try (FileInputStream in = new FileInputStream(file)) {
             byte[] bytes = new byte[(int) file.length()];
@@ -361,6 +459,108 @@ public class MainActivity extends Activity {
             return new String(bytes, 0, offset, StandardCharsets.UTF_8);
         } catch (Exception e) {
             return "";
+        }
+    }
+
+    private synchronized boolean deleteLog(String name) {
+        File file = safeLogFile(name);
+        if (file == null || !file.exists()) return false;
+        if (currentLogFile != null && file.equals(currentLogFile) && logging) return false;
+        return file.delete();
+    }
+
+    private synchronized boolean renameLog(String name, String newSessionName) {
+        File source = safeLogFile(name);
+        if (source == null || !source.exists()) return false;
+        if (currentLogFile != null && source.equals(currentLogFile) && logging) return false;
+
+        String sessionName = normalizeSessionName(newSessionName);
+        JSONObject summary = readLogSummary(source);
+        long startedAt = summary.optLong("startedAt", source.lastModified());
+        String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date(startedAt));
+        File temp = new File(source.getParentFile(), source.getName() + ".tmp");
+        File target = new File(source.getParentFile(), String.format(
+                Locale.US,
+                "ski_imu_%s_%s.jsonl",
+                stamp,
+                sanitizeFilePart(sessionName)
+        ));
+        int suffix = 1;
+        while (target.exists() && !target.equals(source)) {
+            target = new File(source.getParentFile(), String.format(
+                    Locale.US,
+                    "ski_imu_%s_%s_%d.jsonl",
+                    stamp,
+                    sanitizeFilePart(sessionName),
+                    suffix++
+            ));
+        }
+
+        boolean replacedMeta = false;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(source),
+                StandardCharsets.UTF_8
+        ));
+             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                     new FileOutputStream(temp, false),
+                     StandardCharsets.UTF_8
+             ))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!replacedMeta && line.contains("\"kind\":\"session_meta\"")) {
+                    JSONObject meta;
+                    try {
+                        meta = new JSONObject(line);
+                    } catch (Exception e) {
+                        meta = new JSONObject();
+                        meta.put("kind", "session_meta");
+                    }
+                    meta.put("sessionName", sessionName);
+                    meta.put("startedAt", startedAt);
+                    writer.write(meta.toString());
+                    writer.newLine();
+                    replacedMeta = true;
+                } else {
+                    writer.write(line);
+                    writer.newLine();
+                }
+            }
+            if (!replacedMeta) {
+                JSONObject meta = new JSONObject();
+                meta.put("kind", "session_meta");
+                meta.put("sessionName", sessionName);
+                meta.put("startedAt", startedAt);
+                writer.write(meta.toString());
+                writer.newLine();
+            }
+        } catch (Exception e) {
+            if (temp.exists()) temp.delete();
+            return false;
+        }
+
+        if (!source.delete()) {
+            temp.delete();
+            return false;
+        }
+        if (!temp.renameTo(target)) {
+            temp.delete();
+            return false;
+        }
+        currentLogFile = target;
+        currentSessionName = sessionName;
+        return true;
+    }
+
+    private synchronized void exportLogByName(String name) {
+        File source = safeLogFile(name);
+        if (source == null || !source.exists()) {
+            toast("没有找到该记录");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            exportToDownloads(source);
+        } else {
+            exportLegacyToDownloads(source);
         }
     }
 
@@ -408,6 +608,7 @@ public class MainActivity extends Activity {
 
     private final class BoardConnection {
         final String id;
+        final String label;
         final StringBuilder buffer = new StringBuilder();
         BluetoothGatt gatt;
         BluetoothGattCharacteristic rxChar;
@@ -420,12 +621,12 @@ public class MainActivity extends Activity {
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
                     BoardConnection.this.gatt = gatt;
                     sendConnection(id, true);
-                    sendStatus(id + " 板已连接，正在发现服务...");
+                    sendStatus(label + " 已连接，正在发现服务...");
                     gatt.discoverServices();
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     clear();
                     sendConnection(id, false);
-                    sendStatus(id + " 板已断开");
+                    sendStatus(label + " 已断开");
                 }
             }
 
@@ -434,7 +635,7 @@ public class MainActivity extends Activity {
             public void onServicesDiscovered(BluetoothGatt gatt, int status) {
                 BluetoothGattService service = gatt.getService(SERVICE_UUID);
                 if (service == null) {
-                    sendStatus(id + " 板没有找到 UART 服务");
+                    sendStatus(label + " 没有找到 UART 服务");
                     disconnectBoard(id);
                     return;
                 }
@@ -442,7 +643,7 @@ public class MainActivity extends Activity {
                 txChar = service.getCharacteristic(TX_UUID);
                 rxChar = service.getCharacteristic(RX_UUID);
                 if (txChar == null || rxChar == null) {
-                    sendStatus(id + " 板 UART 特征不完整");
+                    sendStatus(label + " UART 特征不完整");
                     disconnectBoard(id);
                     return;
                 }
@@ -453,7 +654,7 @@ public class MainActivity extends Activity {
                     descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                     gatt.writeDescriptor(descriptor);
                 }
-                sendStatus(id + " 板通知已开启");
+                sendStatus(label + " 通知已开启");
             }
 
             @Override
@@ -473,8 +674,9 @@ public class MainActivity extends Activity {
             }
         };
 
-        BoardConnection(String id) {
+        BoardConnection(String id, String label) {
             this.id = id;
+            this.label = label;
         }
 
         void onBytes(byte[] bytes) {
@@ -521,13 +723,13 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void startLog() {
-            runOnUiThread(MainActivity.this::startLog);
+        public void startLog(String sessionName) {
+            MainActivity.this.startLog(sessionName);
         }
 
         @JavascriptInterface
         public void stopLog() {
-            runOnUiThread(MainActivity.this::stopLog);
+            MainActivity.this.stopLog();
         }
 
         @JavascriptInterface
@@ -548,6 +750,21 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String readLog(String name) {
             return MainActivity.this.readLog(name);
+        }
+
+        @JavascriptInterface
+        public boolean renameLog(String name, String newSessionName) {
+            return MainActivity.this.renameLog(name, newSessionName);
+        }
+
+        @JavascriptInterface
+        public boolean deleteLog(String name) {
+            return MainActivity.this.deleteLog(name);
+        }
+
+        @JavascriptInterface
+        public void exportLogByName(String name) {
+            runOnUiThread(() -> MainActivity.this.exportLogByName(name));
         }
     }
 }

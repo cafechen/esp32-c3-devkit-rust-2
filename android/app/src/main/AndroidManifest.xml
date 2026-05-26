@@ -12,7 +12,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="双板 IMU"
+        android:label="滑雪 IMU"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <activity
