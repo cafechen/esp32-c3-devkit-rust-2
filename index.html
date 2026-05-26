@@ -139,7 +139,7 @@
     main {
       min-height: 0;
       display: grid;
-      grid-template-rows: minmax(360px, 1fr) 210px;
+      grid-template-rows: minmax(0, 1fr);
       background: #0e171b;
     }
 
@@ -151,6 +151,7 @@
 
     .wide { grid-column: 1 / -1; }
     .span2 { grid-column: span 2; }
+    .half { grid-column: span 1; }
 
     h2 {
       margin: 18px 0 9px;
@@ -245,8 +246,13 @@
 
     #sceneWrap {
       position: relative;
-      min-height: 360px;
+      min-height: 260px;
+      height: 300px;
       overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0e171b;
+      margin-bottom: 8px;
     }
 
     #threeCanvas {
@@ -269,9 +275,8 @@
     }
 
     #chartPanel {
-      min-height: 210px;
+      min-height: 100%;
       padding: 12px;
-      border-top: 1px solid var(--line);
       background: #121d22;
     }
 
@@ -288,10 +293,14 @@
 
     .recordTools {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
       align-items: center;
       margin-bottom: 8px;
+    }
+
+    .recordTools input {
+      grid-column: 1 / -1;
     }
 
     .logList {
@@ -353,17 +362,25 @@
       .topStats { justify-content: flex-start; }
       .layout { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
-      main { grid-template-rows: 430px 190px; }
+      main { grid-template-rows: 260px; }
     }
 
     @media (max-width: 520px) {
       .topbar { padding: 12px; }
       aside { padding: 12px; }
-      .controlGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .controlGrid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+      .controlGrid > button { grid-column: span 3; }
+      .controlGrid > input { grid-column: 1 / -1; }
+      #connectWaistBtn,
+      #connectLeftBtn,
+      #connectRightBtn { grid-column: span 2; }
+      #calibrateBtn { grid-column: 1 / -1; }
       .scoreGrid,
       .sensorGrid { grid-template-columns: 1fr; }
       .span2 { grid-column: 1 / -1; }
-      main { grid-template-rows: 380px 180px; }
+      .half { grid-column: span 3; }
+      #sceneWrap { height: 260px; min-height: 240px; }
+      main { grid-template-rows: 240px; }
       .value { font-size: 25px; }
     }
   </style>
@@ -385,16 +402,20 @@
     <div class="layout">
       <aside>
         <div class="controlGrid">
-          <button id="autoConnectBtn" class="wide">自动连接 IMU</button>
           <button id="connectWaistBtn">连接腰部(可选)</button>
           <button id="connectLeftBtn">连接左腿</button>
           <button id="connectRightBtn">连接右腿</button>
+          <section id="sceneWrap" class="wide">
+            <canvas id="threeCanvas"></canvas>
+            <div id="sceneOverlay">
+              <span id="posturePill" class="pill">姿态 --</span>
+              <span id="phasePill" class="pill info">窗口 --</span>
+            </div>
+          </section>
           <input id="sessionNameInput" class="wide" value="滑雪训练记录" maxlength="40" aria-label="记录名称" />
           <button id="calibrateBtn" class="warn wide">静止校准</button>
           <button id="startLogBtn" class="secondary">开始记录</button>
           <button id="stopLogBtn" class="secondary">停止记录</button>
-          <button id="downloadLogBtn" class="secondary span2">导出日志</button>
-          <button id="openReplayBtn" class="secondary">回放</button>
         </div>
 
         <h2>实时判断</h2>
@@ -460,20 +481,14 @@
           <input id="renameInput" value="" maxlength="40" aria-label="新记录名称" />
           <button id="refreshLogsBtn" class="secondary">刷新</button>
           <button id="renameLogBtn" class="secondary">重命名</button>
-          <button id="exportSelectedLogBtn" class="secondary">导出选中</button>
+          <button id="exportSelectedLogBtn" class="secondary">导出记录</button>
+          <button id="openReplayBtn" class="secondary">回放</button>
           <button id="deleteLogBtn" class="danger wide">删除选中</button>
         </div>
         <div id="logList" class="logList"></div>
       </aside>
 
       <main>
-        <section id="sceneWrap">
-          <canvas id="threeCanvas"></canvas>
-          <div id="sceneOverlay">
-            <span id="posturePill" class="pill">姿态 --</span>
-            <span id="phasePill" class="pill info">窗口 --</span>
-          </div>
-        </section>
         <section id="chartPanel">
           <canvas id="chartCanvas"></canvas>
         </section>
@@ -520,7 +535,6 @@
       recordingPill: document.getElementById('recordingPill'),
       hzPill: document.getElementById('hzPill'),
       healthPill: document.getElementById('healthPill'),
-      autoConnectBtn: document.getElementById('autoConnectBtn'),
       connectWaistBtn: document.getElementById('connectWaistBtn'),
       connectLeftBtn: document.getElementById('connectLeftBtn'),
       connectRightBtn: document.getElementById('connectRightBtn'),
@@ -528,7 +542,6 @@
       calibrateBtn: document.getElementById('calibrateBtn'),
       startLogBtn: document.getElementById('startLogBtn'),
       stopLogBtn: document.getElementById('stopLogBtn'),
-      downloadLogBtn: document.getElementById('downloadLogBtn'),
       openReplayBtn: document.getElementById('openReplayBtn'),
       backwardScore: document.getElementById('backwardScore'),
       backwardBadge: document.getElementById('backwardBadge'),
@@ -1361,16 +1374,6 @@
       updateUI();
     }
 
-    async function autoConnectSensors() {
-      if (IS_ANDROID_APP) {
-        window.SkiAndroid.autoConnectBoards();
-        el.status.textContent = '正在自动连接左右腿和腰部 IMU...';
-        return;
-      }
-
-      alert('浏览器 Web Bluetooth 不能完全自动连接；请使用 Android App，或分别点击连接按钮。');
-    }
-
     async function disconnectSensor(id) {
       if (IS_ANDROID_APP) {
         window.SkiAndroid.disconnectBoard(id);
@@ -1568,14 +1571,12 @@
       URL.revokeObjectURL(url);
     }
 
-    el.autoConnectBtn.addEventListener('click', () => autoConnectSensors().catch(e => alert(e.message)));
     el.connectWaistBtn.addEventListener('click', () => connectSensor('W').catch(e => alert(e.message)));
     el.connectLeftBtn.addEventListener('click', () => connectSensor('L').catch(e => alert(e.message)));
     el.connectRightBtn.addEventListener('click', () => connectSensor('R').catch(e => alert(e.message)));
     el.calibrateBtn.addEventListener('click', () => sendCalibration().catch(e => alert(e.message)));
     el.startLogBtn.addEventListener('click', startLog);
     el.stopLogBtn.addEventListener('click', stopLog);
-    el.downloadLogBtn.addEventListener('click', exportLog);
     el.openReplayBtn.addEventListener('click', () => { window.location.href = 'replay.html'; });
     el.refreshLogsBtn.addEventListener('click', refreshLogList);
     el.renameLogBtn.addEventListener('click', renameSelectedLog);

@@ -79,6 +79,7 @@ public class MainActivity extends Activity {
     private File currentLogFile;
     private BufferedWriter currentLogWriter;
     private boolean logging;
+    private boolean destroying;
     private int pendingLogLines;
     private long lastLogFlushMs;
     private long currentStartedAtMs;
@@ -88,6 +89,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        destroying = false;
 
         boards.put("W", new BoardConnection("W", "腰部 IMU"));
         boards.put("L", new BoardConnection("L", "左小腿 IMU"));
@@ -150,6 +152,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        destroying = true;
         closeLogWriter();
         mainHandler.removeCallbacks(autoConnectRunnable);
         for (BoardConnection board : boards.values()) {
@@ -218,11 +221,13 @@ public class MainActivity extends Activity {
     }
 
     private void scheduleAutoConnect(long delayMs) {
+        if (destroying) return;
         mainHandler.removeCallbacks(autoConnectRunnable);
         mainHandler.postDelayed(autoConnectRunnable, delayMs);
     }
 
     private void autoConnectBoards() {
+        if (destroying) return;
         if (!ensurePermissions()) return;
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
             sendStatus("请先打开手机蓝牙，打开后会自动连接 IMU");
@@ -708,6 +713,7 @@ public class MainActivity extends Activity {
                     clear();
                     sendConnection(id, false);
                     sendStatus(label + " 已断开");
+                    scheduleAutoConnect(1500);
                 }
             }
 

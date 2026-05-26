@@ -40,7 +40,7 @@ S,W,1024,12345,12,-8,1003,4,-2,1,35,-12,80,1
 
 `index.html` 在 Android WebView 中运行，原生 `MainActivity` 提供三路 BLE 桥接和日志文件写入。只连接 `L/R` 时进入双腿模式；再连接 `W` 后进入三节点模式。
 
-Android App 会在页面加载完成和蓝牙权限通过后自动扫描并连接 `SKI-IMU-L`、`SKI-IMU-R`、`SKI-IMU-W`。页面上的“自动连接 IMU”按钮用于手动重试。浏览器 Web Bluetooth 受平台限制，不能无点击自动连接，只能在 Android App 中实现。
+Android App 会在页面加载完成和蓝牙权限通过后自动扫描并连接 `SKI-IMU-L`、`SKI-IMU-R`、`SKI-IMU-W`，意外断开后也会自动重试。浏览器 Web Bluetooth 受平台限制，不能无点击自动连接，只能在 Android App 中实现。
 
 实时计算频率：
 
