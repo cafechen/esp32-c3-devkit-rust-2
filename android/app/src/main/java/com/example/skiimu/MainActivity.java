@@ -3,6 +3,7 @@ package com.example.skiimu;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -24,10 +25,14 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelUuid;
 import android.provider.MediaStore;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
+import android.webkit.JsResult;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -68,6 +73,8 @@ public class MainActivity extends Activity {
     private BluetoothLeScanner scanner;
     private final Map<String, BoardConnection> boards = new HashMap<>();
     private final Map<String, ScanCallback> scanCallbacks = new HashMap<>();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable autoConnectRunnable = this::autoConnectBoards;
 
     private File currentLogFile;
     private BufferedWriter currentLogWriter;
@@ -103,20 +110,64 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                scheduleAutoConnect(700);
+            }
+        });
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+                new AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setPositiveButton(android.R.string.ok, (dialog, which) -> result.confirm())
+                        .setOnCancelListener(dialog -> result.cancel())
+                        .show();
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+                new AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setPositiveButton("确定", (dialog, which) -> result.confirm())
+                        .setNegativeButton("取消", (dialog, which) -> result.cancel())
+                        .setOnCancelListener(dialog -> result.cancel())
+                        .show();
+                return true;
+            }
+        });
         webView.addJavascriptInterface(new AndroidBridge(), "SkiAndroid");
         webView.loadUrl("file:///android_asset/index.html");
 
-        ensurePermissions();
+        if (ensurePermissions()) {
+            scheduleAutoConnect(1200);
+        }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         closeLogWriter();
+        mainHandler.removeCallbacks(autoConnectRunnable);
         for (BoardConnection board : boards.values()) {
             disconnectBoard(board.id);
         }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQUEST_PERMISSIONS) return;
+        for (int result : grantResults) {
+            if (result != PackageManager.PERMISSION_GRANTED) {
+                toast("需要蓝牙权限才能自动连接 IMU");
+                return;
+            }
+        }
+        scheduleAutoConnect(400);
     }
 
     private boolean ensurePermissions() {
@@ -164,6 +215,36 @@ public class MainActivity extends Activity {
 
     private void eval(String script) {
         runOnUiThread(() -> webView.evaluateJavascript(script, null));
+    }
+
+    private void scheduleAutoConnect(long delayMs) {
+        mainHandler.removeCallbacks(autoConnectRunnable);
+        mainHandler.postDelayed(autoConnectRunnable, delayMs);
+    }
+
+    private void autoConnectBoards() {
+        if (!ensurePermissions()) return;
+        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
+            sendStatus("请先打开手机蓝牙，打开后会自动连接 IMU");
+            return;
+        }
+        if (scanner == null) scanner = bluetoothAdapter.getBluetoothLeScanner();
+        if (scanner == null) {
+            sendStatus("无法启动 BLE 扫描");
+            return;
+        }
+
+        boolean started = false;
+        for (String side : new String[]{"L", "R", "W"}) {
+            BoardConnection board = boards.get(side);
+            if (board == null || board.gatt != null || scanCallbacks.containsKey(side)) continue;
+            connectBoard(side);
+            started = true;
+        }
+
+        sendStatus(started
+                ? "正在自动连接左右腿和腰部 IMU..."
+                : "IMU 已连接或正在扫描中");
     }
 
     @SuppressLint("MissingPermission")
@@ -715,6 +796,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void disconnectBoard(String side) {
             runOnUiThread(() -> MainActivity.this.disconnectBoard(side));
+        }
+
+        @JavascriptInterface
+        public void autoConnectBoards() {
+            runOnUiThread(MainActivity.this::autoConnectBoards);
         }
 
         @JavascriptInterface

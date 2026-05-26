@@ -385,6 +385,7 @@
     <div class="layout">
       <aside>
         <div class="controlGrid">
+          <button id="autoConnectBtn" class="wide">自动连接 IMU</button>
           <button id="connectWaistBtn">连接腰部(可选)</button>
           <button id="connectLeftBtn">连接左腿</button>
           <button id="connectRightBtn">连接右腿</button>
@@ -519,6 +520,7 @@
       recordingPill: document.getElementById('recordingPill'),
       hzPill: document.getElementById('hzPill'),
       healthPill: document.getElementById('healthPill'),
+      autoConnectBtn: document.getElementById('autoConnectBtn'),
       connectWaistBtn: document.getElementById('connectWaistBtn'),
       connectLeftBtn: document.getElementById('connectLeftBtn'),
       connectRightBtn: document.getElementById('connectRightBtn'),
@@ -1359,6 +1361,16 @@
       updateUI();
     }
 
+    async function autoConnectSensors() {
+      if (IS_ANDROID_APP) {
+        window.SkiAndroid.autoConnectBoards();
+        el.status.textContent = '正在自动连接左右腿和腰部 IMU...';
+        return;
+      }
+
+      alert('浏览器 Web Bluetooth 不能完全自动连接；请使用 Android App，或分别点击连接按钮。');
+    }
+
     async function disconnectSensor(id) {
       if (IS_ANDROID_APP) {
         window.SkiAndroid.disconnectBoard(id);
@@ -1499,6 +1511,7 @@
       appState.selectedLogName = '';
       el.renameInput.value = '';
       refreshLogList();
+      el.status.textContent = '选中的记录已删除';
     }
 
     function exportSelectedLog() {
@@ -1555,6 +1568,7 @@
       URL.revokeObjectURL(url);
     }
 
+    el.autoConnectBtn.addEventListener('click', () => autoConnectSensors().catch(e => alert(e.message)));
     el.connectWaistBtn.addEventListener('click', () => connectSensor('W').catch(e => alert(e.message)));
     el.connectLeftBtn.addEventListener('click', () => connectSensor('L').catch(e => alert(e.message)));
     el.connectRightBtn.addEventListener('click', () => connectSensor('R').catch(e => alert(e.message)));
