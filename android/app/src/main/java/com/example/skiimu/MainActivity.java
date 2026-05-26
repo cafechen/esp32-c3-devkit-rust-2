@@ -60,6 +60,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 public class MainActivity extends Activity {
     private static final UUID SERVICE_UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
@@ -468,11 +470,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        if (Build.VERSION.SDK_INT >= 29) {
-            exportToDownloads(source);
-        } else {
-            exportLegacyToDownloads(source);
-        }
+        exportTrainingPackage(source);
     }
 
     private synchronized String listLogs() {
@@ -643,17 +641,15 @@ public class MainActivity extends Activity {
             toast("没有找到该记录");
             return;
         }
-        if (Build.VERSION.SDK_INT >= 29) {
-            exportToDownloads(source);
-        } else {
-            exportLegacyToDownloads(source);
-        }
+        exportTrainingPackage(source);
     }
 
     private void exportToDownloads(File source) {
+        String lowerName = source.getName().toLowerCase(Locale.US);
+        String mimeType = lowerName.endsWith(".zip") ? "application/zip" : "application/json";
         ContentValues values = new ContentValues();
         values.put(MediaStore.Downloads.DISPLAY_NAME, source.getName());
-        values.put(MediaStore.Downloads.MIME_TYPE, "application/json");
+        values.put(MediaStore.Downloads.MIME_TYPE, mimeType);
         values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
 
         Uri uri = null;
@@ -690,6 +686,238 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             toast("导出失败：" + e.getMessage());
         }
+    }
+
+    private synchronized void exportTrainingPackage(File source) {
+        if (currentLogFile != null && source.equals(currentLogFile) && logging) {
+            stopLog();
+        }
+        try {
+            File packageFile = buildTrainingPackage(source);
+            if (Build.VERSION.SDK_INT >= 29) {
+                exportToDownloads(packageFile);
+            } else {
+                exportLegacyToDownloads(packageFile);
+            }
+        } catch (Exception e) {
+            toast("导出训练包失败：" + e.getMessage());
+        }
+    }
+
+    private File buildTrainingPackage(File source) throws Exception {
+        File exportDir = new File(getCacheDir(), "training_exports");
+        if (!exportDir.exists() && !exportDir.mkdirs()) {
+            throw new IllegalStateException("无法创建训练包缓存目录");
+        }
+
+        String baseName = source.getName().replaceFirst("\\.(jsonl|json)$", "");
+        File rawFile = File.createTempFile("raw_imu_", ".jsonl", exportDir);
+        File featuresFile = File.createTempFile("features_", ".jsonl", exportDir);
+        File packageFile = new File(exportDir, baseName + "_training.zip");
+        if (packageFile.exists() && !packageFile.delete()) {
+            throw new IllegalStateException("无法覆盖旧训练包");
+        }
+
+        JSONObject summary = readLogSummary(source);
+        String sessionName = summary.optString("sessionName", source.getName());
+        long startedAt = summary.optLong("startedAt", source.lastModified());
+        long exportedAt = System.currentTimeMillis();
+        JSONObject sessionMeta = new JSONObject();
+        JSONObject sensors = new JSONObject();
+        JSONArray calibrationEvents = new JSONArray();
+        int rawCount = 0;
+        int featureCount = 0;
+        int sourceLineCount = 0;
+        long firstHostTs = 0;
+        long lastHostTs = 0;
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(source),
+                StandardCharsets.UTF_8
+        ));
+             BufferedWriter rawWriter = new BufferedWriter(new OutputStreamWriter(
+                     new FileOutputStream(rawFile, false),
+                     StandardCharsets.UTF_8
+             ));
+             BufferedWriter featureWriter = new BufferedWriter(new OutputStreamWriter(
+                     new FileOutputStream(featuresFile, false),
+                     StandardCharsets.UTF_8
+             ))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sourceLineCount++;
+                JSONObject obj;
+                try {
+                    obj = new JSONObject(line);
+                } catch (Exception ignored) {
+                    continue;
+                }
+
+                String kind = obj.optString("kind", "");
+                if ("session_meta".equals(kind)) {
+                    sessionMeta = obj;
+                    sessionName = obj.optString("sessionName", sessionName);
+                    startedAt = obj.optLong("startedAt", obj.optLong("hostTs", startedAt));
+                }
+
+                long hostTs = obj.optLong("hostTs", 0);
+                if (hostTs > 0) {
+                    if (firstHostTs == 0 || hostTs < firstHostTs) firstHostTs = hostTs;
+                    if (hostTs > lastHostTs) lastHostTs = hostTs;
+                    if (startedAt > 0 && !obj.has("sessionElapsedMs")) {
+                        obj.put("sessionElapsedMs", hostTs - startedAt);
+                    }
+                }
+
+                if ("raw".equals(kind)) {
+                    rawCount++;
+                    updateSensorSummary(sensors, obj, startedAt);
+                    rawWriter.write(obj.toString());
+                    rawWriter.newLine();
+                } else if ("features".equals(kind)) {
+                    featureCount++;
+                    featureWriter.write(obj.toString());
+                    featureWriter.newLine();
+                } else if ("calibration".equals(kind)) {
+                    calibrationEvents.put(obj);
+                }
+            }
+        }
+
+        JSONObject counts = new JSONObject();
+        counts.put("sourceLines", sourceLineCount);
+        counts.put("raw", rawCount);
+        counts.put("features", featureCount);
+        counts.put("calibrationEvents", calibrationEvents.length());
+
+        JSONArray files = new JSONArray();
+        files.put("metadata.json");
+        files.put("raw_imu.jsonl");
+        files.put("calibration.json");
+        files.put("features.jsonl");
+        files.put("labels.json");
+        files.put("source_log.jsonl");
+
+        JSONObject timebase = new JSONObject();
+        timebase.put("hostTs", "手机接收数据时的 Unix 毫秒时间戳");
+        timebase.put("sessionElapsedMs", "hostTs - startedAt，用于标注、回放、视频对齐");
+        timebase.put("sensorMs", "IMU 节点启动后的毫秒计时，用于检查丢包和设备时钟漂移");
+        timebase.put("alignment", "左右腿和腰部默认按手机 hostTs/sessionElapsedMs 对齐");
+
+        JSONObject metadata = new JSONObject();
+        metadata.put("schema", "ski_imu_training_package_v0");
+        metadata.put("sourceSchema", sessionMeta.optString("schema", "ski_imu_jsonl_v0"));
+        metadata.put("sourceLogFile", source.getName());
+        metadata.put("sessionName", sessionName);
+        metadata.put("startedAt", startedAt);
+        metadata.put("exportedAt", exportedAt);
+        metadata.put("firstHostTs", firstHostTs);
+        metadata.put("lastHostTs", lastHostTs);
+        metadata.put("durationMs", firstHostTs > 0 && lastHostTs >= firstHostTs ? lastHostTs - firstHostTs : 0);
+        metadata.put("algorithmVersion", sessionMeta.optString("algorithmVersion", ""));
+        metadata.put("counts", counts);
+        metadata.put("files", files);
+        metadata.put("timebase", timebase);
+        metadata.put("sessionMeta", sessionMeta.length() > 0 ? sessionMeta : JSONObject.NULL);
+        metadata.put("sensors", sensors);
+
+        JSONObject calibration = new JSONObject();
+        calibration.put("schema", "ski_imu_calibration_v0");
+        calibration.put("sessionName", sessionName);
+        calibration.put("startedAt", startedAt);
+        calibration.put("exportedAt", exportedAt);
+        calibration.put("events", calibrationEvents);
+        calibration.put("sensors", sensors);
+        calibration.put("note", "当前固件记录 cal 状态；具体姿态基线未随数据上报，后续可在固件协议中扩展 baseline。");
+
+        JSONObject labels = new JSONObject();
+        labels.put("schema", "ski_imu_labels_v0");
+        labels.put("sessionName", sessionName);
+        labels.put("timebase", "sessionElapsedMs");
+        labels.put("labels", new JSONArray());
+        JSONObject labelSpec = new JSONObject();
+        labelSpec.put("startMs", "动作窗口开始，相对 startedAt 的毫秒");
+        labelSpec.put("endMs", "动作窗口结束，相对 startedAt 的毫秒");
+        labelSpec.put("action", "动作类型，例如 wedge_turn_left / parallel_turn_right / transition");
+        labelSpec.put("quality", "good / normal / bad");
+        labelSpec.put("errorType", "错误类型，例如 backward_lean / late_weight_shift / upper_body_rotation");
+        labelSpec.put("comment", "教练备注");
+        labels.put("labelSpec", labelSpec);
+
+        try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(packageFile))) {
+            writeZipText(zip, "metadata.json", metadata.toString(2));
+            writeZipFile(zip, "raw_imu.jsonl", rawFile);
+            writeZipText(zip, "calibration.json", calibration.toString(2));
+            writeZipFile(zip, "features.jsonl", featuresFile);
+            writeZipText(zip, "labels.json", labels.toString(2));
+            writeZipFile(zip, "source_log.jsonl", source);
+        } finally {
+            rawFile.delete();
+            featuresFile.delete();
+        }
+
+        return packageFile;
+    }
+
+    private void updateSensorSummary(JSONObject sensors, JSONObject raw, long startedAt) throws Exception {
+        String id = raw.optString("id", "");
+        if (id.isEmpty()) return;
+        JSONObject sensor = sensors.optJSONObject(id);
+        if (sensor == null) {
+            sensor = new JSONObject();
+            sensor.put("id", id);
+            sensor.put("role", raw.optString("role", id));
+            sensor.put("rawCount", 0);
+            sensor.put("calibrated", false);
+            sensors.put(id, sensor);
+        }
+
+        long hostTs = raw.optLong("hostTs", 0);
+        long sensorMs = raw.optLong("sensorMs", 0);
+        int rawCount = sensor.optInt("rawCount", 0) + 1;
+        sensor.put("rawCount", rawCount);
+        if (hostTs > 0) {
+            if (sensor.optLong("firstHostTs", 0) == 0) sensor.put("firstHostTs", hostTs);
+            sensor.put("lastHostTs", hostTs);
+        }
+        if (sensorMs > 0) {
+            if (sensor.optLong("firstSensorMs", 0) == 0) sensor.put("firstSensorMs", sensorMs);
+            sensor.put("lastSensorMs", sensorMs);
+        }
+        if (raw.has("seq")) {
+            if (!sensor.has("firstSeq")) sensor.put("firstSeq", raw.optLong("seq", 0));
+            sensor.put("lastSeq", raw.optLong("seq", 0));
+        }
+
+        int cal = raw.optInt("cal", 0);
+        sensor.put("lastCal", cal);
+        if (cal > 0 && !sensor.optBoolean("calibrated", false)) {
+            sensor.put("calibrated", true);
+            sensor.put("firstCalibratedHostTs", hostTs);
+            sensor.put("firstCalibratedSensorMs", sensorMs);
+            if (startedAt > 0 && hostTs > 0) {
+                sensor.put("firstCalibratedSessionElapsedMs", hostTs - startedAt);
+            }
+        }
+    }
+
+    private void writeZipText(ZipOutputStream zip, String entryName, String content) throws Exception {
+        zip.putNextEntry(new ZipEntry(entryName));
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        zip.write(bytes, 0, bytes.length);
+        zip.closeEntry();
+    }
+
+    private void writeZipFile(ZipOutputStream zip, String entryName, File file) throws Exception {
+        zip.putNextEntry(new ZipEntry(entryName));
+        try (FileInputStream in = new FileInputStream(file)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) >= 0) {
+                zip.write(buf, 0, n);
+            }
+        }
+        zip.closeEntry();
     }
 
     private final class BoardConnection {

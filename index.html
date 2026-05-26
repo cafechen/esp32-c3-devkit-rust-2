@@ -809,6 +809,10 @@
 
     function logLine(record) {
       if (!appState.logging) return;
+      if (!Number.isFinite(record.hostTs)) record.hostTs = Date.now();
+      if (appState.sessionStartedAt && Number.isFinite(record.hostTs) && !Number.isFinite(record.sessionElapsedMs)) {
+        record.sessionElapsedMs = record.hostTs - appState.sessionStartedAt;
+      }
       const text = JSON.stringify(record);
       appState.logCount++;
       if (!IS_ANDROID_APP || appState.logRecords.length < 30000) {
@@ -1386,8 +1390,19 @@
     }
 
     async function sendCalibration() {
+      const hostTs = Date.now();
+      const connectedSensors = Object.values(sensors).filter(s => s.connected).map(s => s.id);
       if (IS_ANDROID_APP) {
         window.SkiAndroid.sendCalibration();
+        if (connectedSensors.length) {
+          logLine({
+            kind: 'calibration',
+            hostTs,
+            command: 'static',
+            status: 'sent',
+            connectedSensors
+          });
+        }
         return;
       }
       const payload = new TextEncoder().encode('CAL\n');
@@ -1399,6 +1414,13 @@
       for (const sensor of targets) {
         await sensor.rxChar.writeValue(payload);
       }
+      logLine({
+        kind: 'calibration',
+        hostTs,
+        command: 'static',
+        status: 'sent',
+        connectedSensors: targets.map(s => s.id)
+      });
     }
 
     function normalizeLogItem(item) {
@@ -1544,7 +1566,13 @@
         sessionName: appState.sessionName,
         schema: 'ski_imu_jsonl_v0',
         roles: ROLES,
-        algorithmVersion: 'phone-rules-0.1.0'
+        algorithmVersion: 'phone-rules-0.1.0',
+        exportPackageSchema: 'ski_imu_training_package_v0',
+        timebase: {
+          hostTs: 'phone_receive_unix_ms',
+          sessionElapsedMs: 'hostTs - startedAt',
+          sensorMs: 'device_uptime_ms'
+        }
       });
       updateUI();
     }

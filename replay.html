@@ -32,6 +32,15 @@
 
     input[type="range"] { width: 100%; accent-color: #2563eb; }
     input[type="file"] { width: 100%; color: #42535f; }
+    input[type="text"], select {
+      width: 100%;
+      border: 1px solid #dce6e9;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #fff;
+      color: #16232c;
+      font: inherit;
+    }
 
     #app {
       min-height: 100vh;
@@ -136,6 +145,27 @@
       gap: 6px;
       max-height: 170px;
       overflow-y: auto;
+    }
+
+    #labelList {
+      display: grid;
+      gap: 6px;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    .labelItem {
+      border-radius: 8px;
+      border: 1px solid #dce6e9;
+      background: #f7fbfb;
+      padding: 8px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .labelItem.active {
+      border-color: #2563eb;
+      background: #eff6ff;
     }
 
     .eventItem {
@@ -245,6 +275,33 @@
       <div class="row"><span class="label">速度</span><span class="value" id="speedText">1.0x</span></div>
       <input id="speedRange" type="range" min="0.25" max="4" step="0.25" value="1" />
 
+      <h2>教练标注</h2>
+      <div class="controls">
+        <button id="markStartBtn">设为起点</button>
+        <button id="markEndBtn" class="secondary">设为终点</button>
+        <select id="actionSelect" class="wide" aria-label="动作类型">
+          <option value="wedge_turn_left">犁式左转</option>
+          <option value="wedge_turn_right">犁式右转</option>
+          <option value="parallel_turn_left">平行左转</option>
+          <option value="parallel_turn_right">平行右转</option>
+          <option value="transition">重心转换/换弯</option>
+          <option value="straight_glide">直滑</option>
+          <option value="stop">停止</option>
+          <option value="other">其他</option>
+        </select>
+        <select id="qualitySelect" class="wide" aria-label="动作质量">
+          <option value="good">好</option>
+          <option value="normal">一般</option>
+          <option value="bad">需要纠正</option>
+        </select>
+        <input id="errorInput" class="wide" type="text" placeholder="错误类型，例如 backward_lean / late_weight_shift" />
+        <input id="commentInput" class="wide" type="text" placeholder="教练备注" />
+        <button id="addLabelBtn" class="warn">添加标注</button>
+        <button id="downloadLabelsBtn" class="secondary">导出 labels.json</button>
+      </div>
+      <div class="row"><span class="label">窗口</span><span class="value" id="labelWindowText">未选择</span></div>
+      <div id="labelList"></div>
+
       <h2>当前动作</h2>
       <div class="metricGrid">
         <div class="card">
@@ -332,7 +389,10 @@
       index: 0,
       playing: false,
       speed: 1,
-      lastClock: 0
+      lastClock: 0,
+      labels: [],
+      labelStartMs: null,
+      labelEndMs: null
     };
 
     const el = {
@@ -347,6 +407,16 @@
       speedRange: document.getElementById('speedRange'),
       speedText: document.getElementById('speedText'),
       timeText: document.getElementById('timeText'),
+      markStartBtn: document.getElementById('markStartBtn'),
+      markEndBtn: document.getElementById('markEndBtn'),
+      actionSelect: document.getElementById('actionSelect'),
+      qualitySelect: document.getElementById('qualitySelect'),
+      errorInput: document.getElementById('errorInput'),
+      commentInput: document.getElementById('commentInput'),
+      addLabelBtn: document.getElementById('addLabelBtn'),
+      downloadLabelsBtn: document.getElementById('downloadLabelsBtn'),
+      labelWindowText: document.getElementById('labelWindowText'),
+      labelList: document.getElementById('labelList'),
       leftEdge: document.getElementById('leftEdge'),
       rightEdge: document.getElementById('rightEdge'),
       leftPhase: document.getElementById('leftPhase'),
@@ -399,6 +469,10 @@
       return Number.isFinite(v) ? `${v.toFixed(1)}°` : '--';
     }
 
+    function fmtMs(ms) {
+      return Number.isFinite(ms) ? `${(ms / 1000).toFixed(2)}s` : '--';
+    }
+
     function resizeCanvas(canvas, ctx) {
       const rect = canvas.getBoundingClientRect();
       canvas.width = rect.width * window.devicePixelRatio;
@@ -407,12 +481,71 @@
     }
 
     function parseJsonl(text) {
-      return text
+      const parsed = text
         .split(/\n+/)
         .map(line => line.trim())
         .filter(Boolean)
-        .map(line => JSON.parse(line))
-        .filter(row => Number.isFinite(Number(row.ts)) && (row.side === 'L' || row.side === 'R'));
+        .map(line => JSON.parse(line));
+      const meta = parsed.find(row => row.kind === 'session_meta') || {};
+      const startedAt = Number(meta.startedAt || meta.hostTs || 0);
+      const rows = [];
+
+      parsed.forEach((row, index) => {
+        const side = row.side || row.id;
+        if (side !== 'L' && side !== 'R') return;
+
+        let ts = Number(row.ts);
+        if (!Number.isFinite(ts)) {
+          if (Number.isFinite(Number(row.sessionElapsedMs))) {
+            ts = Number(row.sessionElapsedMs);
+          } else if (startedAt && Number.isFinite(Number(row.hostTs))) {
+            ts = Number(row.hostTs) - startedAt;
+          } else if (Number.isFinite(Number(row.sensorMs))) {
+            ts = Number(row.sensorMs);
+          } else if (Number.isFinite(Number(row.hostTs))) {
+            ts = Number(row.hostTs);
+          }
+        }
+        if (!Number.isFinite(ts)) return;
+
+        const ax = Number(row.ax || 0);
+        const ay = Number(row.ay || 0);
+        const az = Number(row.az || 0);
+        const am = Number.isFinite(Number(row.am))
+          ? Number(row.am)
+          : Math.sqrt(ax * ax + ay * ay + az * az);
+        const edge = Number.isFinite(Number(row.ed)) ? Number(row.ed) : Number(row.roll || 0);
+        const pitch = Number.isFinite(Number(row.pd)) ? Number(row.pd) : Number(row.pitch || 0);
+        const rollRate = Number.isFinite(Number(row.rr)) ? Number(row.rr) : Number(row.gx || 0);
+        const pitchRate = Number.isFinite(Number(row.pr)) ? Number(row.pr) : Number(row.gy || 0);
+        const gyroMag = Math.max(
+          Math.abs(Number(row.gx || 0)),
+          Math.abs(Number(row.gy || 0)),
+          Math.abs(Number(row.gz || 0))
+        );
+        let phase = row.ph;
+        if (!phase) {
+          if (gyroMag < 4 && Math.abs(am - 1) < 0.08) phase = 'STILL';
+          else if (Math.abs(edge) < 5) phase = 'FLAT';
+          else phase = edge > 0 ? 'RIGHT_EDGE' : 'LEFT_EDGE';
+        }
+
+        rows.push({
+          ...row,
+          sourceIndex: index,
+          ts,
+          side,
+          ed: edge,
+          pd: pitch,
+          rr: rollRate,
+          pr: pitchRate,
+          am,
+          ph: phase,
+          ec: Number(row.ec || 0)
+        });
+      });
+
+      return rows;
     }
 
     function buildFrames(rows) {
@@ -652,8 +785,13 @@
       state.index = 0;
       state.playing = false;
       state.lastClock = 0;
+      state.labels = [];
+      state.labelStartMs = null;
+      state.labelEndMs = null;
 
       updateStaticInfo();
+      renderLabels();
+      updateLabelWindowText();
       updateUI();
       drawAll();
     }
@@ -712,6 +850,7 @@
         : '释放旧刃 → 过平板 → 建立新刃';
       el.playBtn.textContent = state.playing ? '暂停' : '播放';
       highlightEdgeChangeList();
+      highlightLabels();
     }
 
     function renderEdgeChangeList() {
@@ -749,6 +888,127 @@
         const span = state.edgeChangeSpans[i];
         item.classList.toggle('active', Boolean(current && span === current));
       });
+    }
+
+    function currentElapsedMs() {
+      const frame = state.frames[state.index];
+      return frame ? Math.round(frame.t * 1000) : NaN;
+    }
+
+    function updateLabelWindowText() {
+      const start = state.labelStartMs;
+      const end = state.labelEndMs;
+      if (!Number.isFinite(start) && !Number.isFinite(end)) {
+        el.labelWindowText.textContent = '未选择';
+      } else {
+        el.labelWindowText.textContent = `${fmtMs(start)} → ${fmtMs(end)}`;
+      }
+    }
+
+    function markLabelStart() {
+      if (!state.frames.length) return;
+      state.labelStartMs = currentElapsedMs();
+      if (Number.isFinite(state.labelEndMs) && state.labelEndMs < state.labelStartMs) {
+        state.labelEndMs = state.labelStartMs;
+      }
+      updateLabelWindowText();
+    }
+
+    function markLabelEnd() {
+      if (!state.frames.length) return;
+      state.labelEndMs = currentElapsedMs();
+      if (Number.isFinite(state.labelStartMs) && state.labelEndMs < state.labelStartMs) {
+        const tmp = state.labelStartMs;
+        state.labelStartMs = state.labelEndMs;
+        state.labelEndMs = tmp;
+      }
+      updateLabelWindowText();
+    }
+
+    function addLabel() {
+      if (!Number.isFinite(state.labelStartMs) || !Number.isFinite(state.labelEndMs)) {
+        alert('请先设置标注起点和终点。');
+        return;
+      }
+      const startMs = Math.min(state.labelStartMs, state.labelEndMs);
+      const endMs = Math.max(state.labelStartMs, state.labelEndMs);
+      if (endMs - startMs < 100) {
+        alert('标注窗口太短，请至少选择 0.1 秒以上。');
+        return;
+      }
+      const label = {
+        id: `label_${String(state.labels.length + 1).padStart(3, '0')}`,
+        startMs,
+        endMs,
+        action: el.actionSelect.value,
+        quality: el.qualitySelect.value,
+        errorType: el.errorInput.value.trim(),
+        comment: el.commentInput.value.trim(),
+        createdAt: Date.now()
+      };
+      state.labels.push(label);
+      state.labelStartMs = null;
+      state.labelEndMs = null;
+      el.errorInput.value = '';
+      el.commentInput.value = '';
+      updateLabelWindowText();
+      renderLabels();
+    }
+
+    function renderLabels() {
+      el.labelList.innerHTML = '';
+      if (!state.labels.length) {
+        const empty = document.createElement('div');
+        empty.className = 'labelItem';
+        empty.textContent = '还没有标注。播放或拖动时间轴后，设置起点/终点并添加动作标签。';
+        el.labelList.appendChild(empty);
+        return;
+      }
+
+      state.labels.forEach(label => {
+        const item = document.createElement('div');
+        item.className = 'labelItem';
+        item.innerHTML = `
+          <strong>${label.id}</strong> · ${fmtMs(label.startMs)} → ${fmtMs(label.endMs)} · ${label.action} · ${label.quality}
+          <div class="small">${label.errorType || '无错误类型'}${label.comment ? ` · ${label.comment}` : ''}</div>
+        `;
+        item.addEventListener('click', () => {
+          const targetT = label.startMs / 1000;
+          const idx = state.frames.findIndex(frame => frame.t >= targetT);
+          state.index = idx >= 0 ? idx : state.frames.length - 1;
+          state.playing = false;
+          updateUI();
+          drawAll();
+        });
+        el.labelList.appendChild(item);
+      });
+    }
+
+    function highlightLabels() {
+      const now = currentElapsedMs();
+      const items = [...el.labelList.querySelectorAll('.labelItem')];
+      items.forEach((item, i) => {
+        const label = state.labels[i];
+        item.classList.toggle('active', Boolean(label && now >= label.startMs && now <= label.endMs));
+      });
+    }
+
+    function downloadLabels() {
+      const payload = {
+        schema: 'ski_imu_labels_v0',
+        sourceFileName: state.fileName,
+        timebase: 'sessionElapsedMs',
+        durationMs: Math.round(state.duration * 1000),
+        exportedAt: Date.now(),
+        labels: state.labels
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(state.fileName || 'ski_imu').replace(/\.(jsonl|json)$/i, '')}_labels.json`;
+      a.click();
+      URL.revokeObjectURL(url);
     }
 
     function pathBounds() {
@@ -931,6 +1191,7 @@
       if (!state.frames.length) return;
 
       drawEdgeChangeBands(w, h);
+      drawLabelBands(w, h);
 
       chartCtx.strokeStyle = 'rgba(255,255,255,0.12)';
       chartCtx.lineWidth = 1;
@@ -965,6 +1226,22 @@
         const x1 = (span.start / Math.max(1, state.frames.length - 1)) * w;
         const x2 = (span.end / Math.max(1, state.frames.length - 1)) * w;
         chartCtx.fillStyle = 'rgba(245, 158, 11, 0.24)';
+        chartCtx.fillRect(x1, 0, Math.max(2, x2 - x1), h);
+      }
+      chartCtx.restore();
+    }
+
+    function drawLabelBands(w, h) {
+      if (!state.labels.length || !state.duration) return;
+      chartCtx.save();
+      for (const label of state.labels) {
+        const x1 = clamp(label.startMs / Math.max(1, state.duration * 1000), 0, 1) * w;
+        const x2 = clamp(label.endMs / Math.max(1, state.duration * 1000), 0, 1) * w;
+        chartCtx.fillStyle = label.quality === 'bad'
+          ? 'rgba(239, 68, 68, 0.20)'
+          : label.quality === 'good'
+            ? 'rgba(34, 197, 94, 0.16)'
+            : 'rgba(37, 99, 235, 0.16)';
         chartCtx.fillRect(x1, 0, Math.max(2, x2 - x1), h);
       }
       chartCtx.restore();
@@ -1069,6 +1346,11 @@
       state.speed = Number(el.speedRange.value);
       el.speedText.textContent = `${state.speed.toFixed(2).replace(/\.00$/, '')}x`;
     });
+
+    el.markStartBtn.addEventListener('click', markLabelStart);
+    el.markEndBtn.addEventListener('click', markLabelEnd);
+    el.addLabelBtn.addEventListener('click', addLabel);
+    el.downloadLabelsBtn.addEventListener('click', downloadLabels);
 
     el.loadDefaultBtn.addEventListener('click', async () => {
       try {
