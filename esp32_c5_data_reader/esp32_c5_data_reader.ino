@@ -4,6 +4,7 @@
 #include <Adafruit_SHTC3.h>
 #include <ICM42670P.h>
 #include <NimBLEDevice.h>
+#include <Preferences.h>
 
 // ============================================================
 // 滑雪动作识别 IMU 节点固件
@@ -22,7 +23,7 @@
 
 // ====== 本设备身份：腰部 W / 左小腿 L / 右小腿 R ======
 // 同一份固件分别改这个值后烧录到三个 ESP32。
-#define SKI_SENSOR_SIDE "W"
+#define SKI_SENSOR_SIDE "R"
 
 // ====== 安装方向修正 ======
 // 如果网页中雪板向左倾，立刃角却向右变化，把对应符号从 1 改成 -1。
@@ -47,12 +48,25 @@ const unsigned long SAMPLE_INTERVAL_MS = 10;
 #define CHARACTERISTIC_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
+// 20-byte binary IMU frame, compatible with the default BLE ATT payload:
+// [0]=0xA5, [1]=side ascii, [2..3]=seq16, [4..7]=ms32,
+// [8..19]=ax/ay/az mg + gx/gy/gz dps*10 as int16 little-endian.
+#define BLE_FRAME_MAGIC 0xA5
+#define BLE_FRAME_BYTES 20
+
+// USB serial JSON is useful for firmware tuning, but BLE now sends binary frames.
+#define SERIAL_JSON_DEBUG 1
+
 Adafruit_SHTC3 shtc3;
 ICM42670 icm(Wire, 0);  // 0 表示默认 I2C 地址 0x68
 
 bool sht_ok = false;
 bool imu_ok = false;
 bool deviceConnected = false;
+
+Preferences prefs;
+String sensorSide = SKI_SENSOR_SIDE;
+String deviceName = String("SKI-IMU-") + SKI_SENSOR_SIDE;
 
 static NimBLECharacteristic* txCharacteristic = nullptr;
 static NimBLECharacteristic* rxCharacteristic = nullptr;
@@ -121,6 +135,37 @@ enum SkiPhase {
 
 SkiPhase skiPhase = PHASE_STILL;
 
+bool isValidSensorSide(const String& side) {
+  return side == "L" || side == "R" || side == "W";
+}
+
+String normalizeSensorSide(String side) {
+  side.trim();
+  side.toUpperCase();
+  if (!isValidSensorSide(side)) return "";
+  return side;
+}
+
+void loadSensorIdentity() {
+  prefs.begin("skiimu", false);
+  sensorSide = normalizeSensorSide(prefs.getString("side", SKI_SENSOR_SIDE));
+  if (sensorSide.length() == 0) sensorSide = SKI_SENSOR_SIDE;
+  deviceName = String("SKI-IMU-") + sensorSide;
+}
+
+void saveSensorSideAndRestart(String side) {
+  side = normalizeSensorSide(side);
+  if (side.length() == 0) {
+    Serial.println("Invalid side command");
+    return;
+  }
+  prefs.putString("side", side);
+  Serial.print("Saved side=");
+  Serial.println(side);
+  delay(250);
+  ESP.restart();
+}
+
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
     deviceConnected = true;
@@ -139,6 +184,15 @@ class RxCallbacks : public NimBLECharacteristicCallbacks {
 
     Serial.print("BLE RX: ");
     Serial.println(value.c_str());
+
+    String command(value.c_str());
+    command.trim();
+    command.toUpperCase();
+    if (command.startsWith("SIDE:") || command.startsWith("SET_SIDE:") || command.startsWith("ROLE:")) {
+      int split = command.indexOf(':');
+      saveSensorSideAndRestart(command.substring(split + 1));
+      return;
+    }
 
     // 网页端点击“静止校准”时会发送 CAL。
     // 这里不直接在回调里读 I2C，避免 BLE 回调阻塞太久；只设置标志位，
@@ -187,8 +241,54 @@ const char* phaseName(SkiPhase s) {
   }
 }
 
+int16_t clampInt16(long value) {
+  if (value > 32767L) return 32767;
+  if (value < -32768L) return -32768;
+  return (int16_t)value;
+}
+
+void putLe16(uint8_t* out, int offset, int16_t value) {
+  uint16_t u = (uint16_t)value;
+  out[offset] = (uint8_t)(u & 0xFF);
+  out[offset + 1] = (uint8_t)((u >> 8) & 0xFF);
+}
+
+void putLe32(uint8_t* out, int offset, uint32_t value) {
+  out[offset] = (uint8_t)(value & 0xFF);
+  out[offset + 1] = (uint8_t)((value >> 8) & 0xFF);
+  out[offset + 2] = (uint8_t)((value >> 16) & 0xFF);
+  out[offset + 3] = (uint8_t)((value >> 24) & 0xFF);
+}
+
+void notifyBleFrame(
+  uint16_t seq16,
+  uint32_t ms,
+  int16_t ax_mg,
+  int16_t ay_mg,
+  int16_t az_mg,
+  int16_t gx_dps10,
+  int16_t gy_dps10,
+  int16_t gz_dps10
+) {
+  if (!deviceConnected || txCharacteristic == nullptr) return;
+
+  uint8_t frame[BLE_FRAME_BYTES];
+  frame[0] = BLE_FRAME_MAGIC;
+  frame[1] = sensorSide.length() > 0 ? (uint8_t)sensorSide.charAt(0) : (uint8_t)'?';
+  putLe16(frame, 2, (int16_t)seq16);
+  putLe32(frame, 4, ms);
+  putLe16(frame, 8, ax_mg);
+  putLe16(frame, 10, ay_mg);
+  putLe16(frame, 12, az_mg);
+  putLe16(frame, 14, gx_dps10);
+  putLe16(frame, 16, gy_dps10);
+  putLe16(frame, 18, gz_dps10);
+
+  txCharacteristic->setValue(frame, sizeof(frame));
+  txCharacteristic->notify();
+}
+
 void setupBLE() {
-  String deviceName = String("SKI-IMU-") + SKI_SENSOR_SIDE;
   NimBLEDevice::init(deviceName.c_str());
   // 提高 ATT MTU，降低较长 JSON 通知被拆包/截断的概率。
   // Web Bluetooth 端仍然按换行符拼包，所以即使拆包也可以正确解析。
@@ -332,6 +432,7 @@ void updateSkiPhase(float edgeDeg, float rollRateDps) {
 
 void setup() {
   Serial.begin(115200);
+  loadSensorIdentity();
 
   unsigned long start = millis();
   while (!Serial && millis() - start < 2500) {
@@ -360,7 +461,7 @@ void setup() {
 
   setupBLE();
 
-  Serial.print("device=SKI-IMU-"); Serial.println(SKI_SENSOR_SIDE);
+  Serial.print("device="); Serial.println(deviceName);
   Serial.print("sht_ok="); Serial.println(sht_ok ? "true" : "false");
   Serial.print("imu_ok="); Serial.println(imu_ok ? "true" : "false");
   Serial.println("可通过 BLE RX 发送 CAL 执行静止姿态零点校准");
@@ -455,8 +556,8 @@ void loop() {
   // BLE 格式：
   // S,id,seq,ms,ax_mg,ay_mg,az_mg,gx_dps10,gy_dps10,gz_dps10,roll_cd,pitch_cd,yaw_cd,cal
   // 例：S,W,1024,12345,12,-8,1003,4,-2,1,35,-12,80,1
+#if SERIAL_JSON_DEBUG
   char serialJson[512];
-  char bleLine[160];
   char tempJson[16];
   char humJson[16];
 
@@ -473,7 +574,7 @@ void loop() {
     "\"ed\":%.1f,\"pd\":%.1f,\"yd\":%.1f,"
     "\"rr\":%.1f,\"ph\":\"%s\",\"ec\":%lu,"
     "\"cal\":%d,\"imu\":%d}\n",
-    SKI_SENSOR_SIDE,
+    sensorSide.c_str(),
     sample_seq,
     now / 1000.0f,
     now,
@@ -490,32 +591,20 @@ void loop() {
     imu_ok ? 1 : 0
   );
 
-  int ax_mg = (int)lroundf(ax_g * 1000.0f);
-  int ay_mg = (int)lroundf(ay_g * 1000.0f);
-  int az_mg = (int)lroundf(az_g * 1000.0f);
-  int gx_dps10 = (int)lroundf(gx_dps * 10.0f);
-  int gy_dps10 = (int)lroundf(gy_dps * 10.0f);
-  int gz_dps10 = (int)lroundf(gz_dps * 10.0f);
-  int roll_cd = (int)lroundf(edgeDeg * 100.0f);
-  int pitch_cd = (int)lroundf(pitchDeg * 100.0f);
-  int yaw_cd = (int)lroundf(yawDeg * 100.0f);
-
-  snprintf(
-    bleLine, sizeof(bleLine),
-    "S,%s,%lu,%lu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
-    SKI_SENSOR_SIDE,
-    sample_seq,
-    now,
-    ax_mg, ay_mg, az_mg,
-    gx_dps10, gy_dps10, gz_dps10,
-    roll_cd, pitch_cd, yaw_cd,
-    reference_calibrated ? 1 : 0
-  );
+  int16_t ax_mg = clampInt16(lroundf(ax_g * 1000.0f));
+  int16_t ay_mg = clampInt16(lroundf(ay_g * 1000.0f));
+  int16_t az_mg = clampInt16(lroundf(az_g * 1000.0f));
+  int16_t gx_dps10 = clampInt16(lroundf(gx_dps * 10.0f));
+  int16_t gy_dps10 = clampInt16(lroundf(gy_dps * 10.0f));
+  int16_t gz_dps10 = clampInt16(lroundf(gz_dps * 10.0f));
 
   Serial.println(serialJson);
+#endif
 
-  if (deviceConnected && txCharacteristic) {
-    txCharacteristic->setValue((uint8_t*)bleLine, strlen(bleLine));
-    txCharacteristic->notify();
-  }
+  notifyBleFrame(
+    (uint16_t)(sample_seq & 0xFFFF),
+    (uint32_t)now,
+    ax_mg, ay_mg, az_mg,
+    gx_dps10, gy_dps10, gz_dps10
+  );
 }

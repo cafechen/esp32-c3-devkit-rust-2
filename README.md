@@ -125,6 +125,7 @@ http://localhost:8000/index.html
 - `replay.html`：加载 JSONL 日志，回放左右立刃角、动作阶段、同步分和估算滑行路径。
 - 默认会尝试加载 `ski_imu_log_1777385783530.jsonl`。
 - 也可以把任意 JSONL 日志拖到页面左侧区域，或通过文件选择器打开。
+- 教练标注支持设置动作窗口、动作类型、动作质量、错误类型和备注，也可以导入已有 `labels.json` 后继续编辑、删除、清空和重新导出。
 
 ## Android 手机客户端
 
@@ -133,7 +134,7 @@ http://localhost:8000/index.html
 - 采集页点击“连接左板 / 连接右板”会扫描 `SKI-IMU-L` / `SKI-IMU-R` 设备。
 - 点击“开始记录”后，每条 BLE 数据都会立刻追加保存到 App 私有目录的 JSONL 文件。
 - 点击“回放日志”可以直接加载本机最新日志，不需要先导出再导入。
-- 点击“导出日志”会把当前 JSONL 复制到手机 `Downloads/`。
+- 点击“导出日志”会把当前记录拆成训练 ZIP 包并保存到手机 `Downloads/`。
 
 用 Android Studio 打开 `android/` 目录，等待 Gradle 同步后运行到手机即可。构建时会自动把仓库根目录的 `index.html` 和 `replay.html` 复制到 App assets。
 
@@ -145,6 +146,41 @@ gradle assembleDebug
 ```
 
 需要 Android SDK、Android Gradle Plugin 和一台支持 BLE 的 Android 手机。首次运行要允许蓝牙权限；Android 11 及以下还需要位置权限才能扫描 BLE。
+
+## 标注和训练
+
+手机导出的训练 ZIP 包包含：
+
+- `metadata.json`：记录名称、开始时间、文件清单和传感器摘要。
+- `raw_imu.jsonl`：原始 IMU 数据。
+- `features.jsonl`：手机端规则算法生成的特征快照。
+- `labels.json`：空标注文件，供电脑端替换。
+- `source_log.jsonl`：完整原始日志备份。
+
+电脑标注流程：
+
+1. 解压训练 ZIP，或者从 ZIP 中取出 `source_log.jsonl` / `raw_imu.jsonl`。
+2. 用本地 HTTP 服务打开 `replay.html`。
+3. 加载日志，播放或拖动时间轴，设置起点/终点并添加动作标签。
+4. 导出 `labels.json`。如果后续要修改，可以再导入这个 `labels.json` 继续编辑。
+
+训练特征模型：
+
+```bash
+python tools/train_feature_model.py path/to/session_training.zip path/to/session_labels.json --output models/feature_model
+```
+
+也可以传入一个目录，脚本会扫描里面的训练 ZIP、已解压训练包目录和 `labels.json`：
+
+```bash
+python tools/train_feature_model.py path/to/training_data --output models/feature_model
+```
+
+脚本会输出：
+
+- `feature_model.json`：无第三方依赖的最近质心特征模型，可作为手机低频推理的第一版模型格式。
+- `metrics.json`：训练集或按记录留一验证的准确率和混淆矩阵。
+- `training_samples.csv`：每个标注窗口聚合后的训练样本，方便人工检查特征和标签。
 
 ## 数据格式
 

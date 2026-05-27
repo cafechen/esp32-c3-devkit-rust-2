@@ -14,3 +14,5 @@ android/gradlew
 android/gradlew.bat
 gradle-*.zip
 *.apk
+__pycache__/
+*.py[cod]

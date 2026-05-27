@@ -29,6 +29,7 @@
 
     button.secondary { background: #415462; }
     button.warn { background: #b45309; }
+    button.danger { background: #b91c1c; }
 
     input[type="range"] { width: 100%; accent-color: #2563eb; }
     input[type="file"] { width: 100%; color: #42535f; }
@@ -168,6 +169,17 @@
       background: #eff6ff;
     }
 
+    .labelActions {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .labelActions button {
+      padding: 6px 8px;
+      font-size: 12px;
+    }
+
     .eventItem {
       display: grid;
       grid-template-columns: 74px 1fr;
@@ -297,7 +309,11 @@
         <input id="errorInput" class="wide" type="text" placeholder="错误类型，例如 backward_lean / late_weight_shift" />
         <input id="commentInput" class="wide" type="text" placeholder="教练备注" />
         <button id="addLabelBtn" class="warn">添加标注</button>
+        <button id="cancelEditBtn" class="secondary">取消编辑</button>
+        <button id="importLabelsBtn" class="secondary">导入 labels.json</button>
         <button id="downloadLabelsBtn" class="secondary">导出 labels.json</button>
+        <button id="clearLabelsBtn" class="secondary wide">清空标注</button>
+        <input id="labelFileInput" class="wide" type="file" accept=".json,application/json" hidden />
       </div>
       <div class="row"><span class="label">窗口</span><span class="value" id="labelWindowText">未选择</span></div>
       <div id="labelList"></div>
@@ -392,7 +408,9 @@
       lastClock: 0,
       labels: [],
       labelStartMs: null,
-      labelEndMs: null
+      labelEndMs: null,
+      labelsSourceFile: '',
+      editingLabelId: null
     };
 
     const el = {
@@ -414,7 +432,11 @@
       errorInput: document.getElementById('errorInput'),
       commentInput: document.getElementById('commentInput'),
       addLabelBtn: document.getElementById('addLabelBtn'),
+      cancelEditBtn: document.getElementById('cancelEditBtn'),
+      importLabelsBtn: document.getElementById('importLabelsBtn'),
       downloadLabelsBtn: document.getElementById('downloadLabelsBtn'),
+      clearLabelsBtn: document.getElementById('clearLabelsBtn'),
+      labelFileInput: document.getElementById('labelFileInput'),
       labelWindowText: document.getElementById('labelWindowText'),
       labelList: document.getElementById('labelList'),
       leftEdge: document.getElementById('leftEdge'),
@@ -450,6 +472,8 @@
       el.loadLocalBtn.style.display = 'none';
     }
 
+    el.cancelEditBtn.style.display = 'none';
+
     function clamp(v, lo, hi) {
       return Math.max(lo, Math.min(hi, v));
     }
@@ -471,6 +495,26 @@
 
     function fmtMs(ms) {
       return Number.isFinite(ms) ? `${(ms / 1000).toFixed(2)}s` : '--';
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[ch]));
+    }
+
+    function actionText(value) {
+      const option = [...el.actionSelect.options].find(item => item.value === value);
+      return option ? option.textContent : value || 'other';
+    }
+
+    function qualityText(value) {
+      const option = [...el.qualitySelect.options].find(item => item.value === value);
+      return option ? option.textContent : value || 'normal';
     }
 
     function resizeCanvas(canvas, ctx) {
@@ -766,7 +810,9 @@
       if (!IS_ANDROID_APP) throw new Error('只在 Android 客户端中可用');
       const names = JSON.parse(window.SkiAndroid.listLogs() || '[]');
       if (!names.length) throw new Error('本机还没有保存过日志');
-      const fileName = names[0];
+      const latest = names[0];
+      const fileName = typeof latest === 'string' ? latest : latest.fileName;
+      if (!fileName) throw new Error('本机日志缺少文件名');
       const text = window.SkiAndroid.readLog(fileName);
       if (!text) throw new Error('读取本机日志失败');
       await loadText(text, fileName);
@@ -788,6 +834,8 @@
       state.labels = [];
       state.labelStartMs = null;
       state.labelEndMs = null;
+      state.labelsSourceFile = '';
+      resetLabelEditor();
 
       updateStaticInfo();
       renderLabels();
@@ -905,6 +953,52 @@
       }
     }
 
+    function nextLabelId() {
+      let maxId = 0;
+      state.labels.forEach(label => {
+        const match = String(label.id || '').match(/label_(\d+)/);
+        if (match) maxId = Math.max(maxId, Number(match[1]));
+      });
+      return `label_${String(maxId + 1).padStart(3, '0')}`;
+    }
+
+    function normalizeLabel(raw, index = 0) {
+      const startMs = Number(raw.startMs ?? raw.start ?? raw.start_ms);
+      const endMs = Number(raw.endMs ?? raw.end ?? raw.end_ms);
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+      const start = Math.min(startMs, endMs);
+      const end = Math.max(startMs, endMs);
+      if (end - start < 1) return null;
+      return {
+        id: String(raw.id || `label_${String(index + 1).padStart(3, '0')}`),
+        startMs: Math.round(start),
+        endMs: Math.round(end),
+        action: String(raw.action || 'other'),
+        quality: String(raw.quality || 'normal'),
+        errorType: String(raw.errorType || raw.error_type || '').trim(),
+        comment: String(raw.comment || '').trim(),
+        createdAt: Number(raw.createdAt || Date.now()),
+        updatedAt: raw.updatedAt ? Number(raw.updatedAt) : undefined
+      };
+    }
+
+    function sortLabels() {
+      state.labels.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs || a.id.localeCompare(b.id));
+    }
+
+    function resetLabelEditor() {
+      state.editingLabelId = null;
+      state.labelStartMs = null;
+      state.labelEndMs = null;
+      el.actionSelect.value = 'wedge_turn_left';
+      el.qualitySelect.value = 'good';
+      el.errorInput.value = '';
+      el.commentInput.value = '';
+      el.addLabelBtn.textContent = '添加标注';
+      el.cancelEditBtn.style.display = 'none';
+      updateLabelWindowText();
+    }
+
     function markLabelStart() {
       if (!state.frames.length) return;
       state.labelStartMs = currentElapsedMs();
@@ -925,7 +1019,7 @@
       updateLabelWindowText();
     }
 
-    function addLabel() {
+    function saveLabel() {
       if (!Number.isFinite(state.labelStartMs) || !Number.isFinite(state.labelEndMs)) {
         alert('请先设置标注起点和终点。');
         return;
@@ -937,22 +1031,60 @@
         return;
       }
       const label = {
-        id: `label_${String(state.labels.length + 1).padStart(3, '0')}`,
+        id: state.editingLabelId || nextLabelId(),
         startMs,
         endMs,
         action: el.actionSelect.value,
         quality: el.qualitySelect.value,
         errorType: el.errorInput.value.trim(),
         comment: el.commentInput.value.trim(),
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        updatedAt: state.editingLabelId ? Date.now() : undefined
       };
-      state.labels.push(label);
-      state.labelStartMs = null;
-      state.labelEndMs = null;
-      el.errorInput.value = '';
-      el.commentInput.value = '';
-      updateLabelWindowText();
+      const existingIndex = state.labels.findIndex(item => item.id === state.editingLabelId);
+      if (existingIndex >= 0) {
+        label.createdAt = state.labels[existingIndex].createdAt || label.createdAt;
+        state.labels.splice(existingIndex, 1, label);
+      } else {
+        state.labels.push(label);
+      }
+      sortLabels();
+      resetLabelEditor();
       renderLabels();
+      drawAll();
+    }
+
+    function editLabel(label) {
+      state.editingLabelId = label.id;
+      state.labelStartMs = label.startMs;
+      state.labelEndMs = label.endMs;
+      el.actionSelect.value = [...el.actionSelect.options].some(option => option.value === label.action) ? label.action : 'other';
+      el.qualitySelect.value = [...el.qualitySelect.options].some(option => option.value === label.quality) ? label.quality : 'normal';
+      el.errorInput.value = label.errorType || '';
+      el.commentInput.value = label.comment || '';
+      el.addLabelBtn.textContent = '更新标注';
+      el.cancelEditBtn.style.display = '';
+      updateLabelWindowText();
+    }
+
+    function deleteLabel(labelId) {
+      const label = state.labels.find(item => item.id === labelId);
+      if (!label) return;
+      if (!confirm(`删除 ${label.id}？`)) return;
+      state.labels = state.labels.filter(item => item.id !== labelId);
+      if (state.editingLabelId === labelId) resetLabelEditor();
+      renderLabels();
+      drawAll();
+    }
+
+    function clearLabels() {
+      if (!state.labels.length) return;
+      if (!confirm('清空当前全部标注？')) return;
+      state.labels = [];
+      state.labelsSourceFile = '';
+      resetLabelEditor();
+      renderLabels();
+      drawAll();
     }
 
     function renderLabels() {
@@ -965,13 +1097,36 @@
         return;
       }
 
+      sortLabels();
       state.labels.forEach(label => {
         const item = document.createElement('div');
         item.className = 'labelItem';
-        item.innerHTML = `
-          <strong>${label.id}</strong> · ${fmtMs(label.startMs)} → ${fmtMs(label.endMs)} · ${label.action} · ${label.quality}
-          <div class="small">${label.errorType || '无错误类型'}${label.comment ? ` · ${label.comment}` : ''}</div>
-        `;
+        item.dataset.labelId = label.id;
+        const summary = document.createElement('div');
+        summary.innerHTML = `<strong>${escapeHtml(label.id)}</strong> · ${fmtMs(label.startMs)} → ${fmtMs(label.endMs)} · ${escapeHtml(actionText(label.action))} · ${escapeHtml(qualityText(label.quality))}`;
+        const detail = document.createElement('div');
+        detail.className = 'small';
+        detail.textContent = `${label.errorType || '无错误类型'}${label.comment ? ` · ${label.comment}` : ''}`;
+        const actions = document.createElement('div');
+        actions.className = 'labelActions';
+        const editButton = document.createElement('button');
+        editButton.type = 'button';
+        editButton.className = 'secondary';
+        editButton.textContent = '编辑';
+        editButton.addEventListener('click', event => {
+          event.stopPropagation();
+          editLabel(label);
+        });
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'danger';
+        deleteButton.textContent = '删除';
+        deleteButton.addEventListener('click', event => {
+          event.stopPropagation();
+          deleteLabel(label.id);
+        });
+        actions.append(editButton, deleteButton);
+        item.append(summary, detail, actions);
         item.addEventListener('click', () => {
           const targetT = label.startMs / 1000;
           const idx = state.frames.findIndex(frame => frame.t >= targetT);
@@ -988,18 +1143,63 @@
       const now = currentElapsedMs();
       const items = [...el.labelList.querySelectorAll('.labelItem')];
       items.forEach((item, i) => {
-        const label = state.labels[i];
+        const labelId = item.dataset.labelId;
+        const label = state.labels.find(entry => entry.id === labelId);
         item.classList.toggle('active', Boolean(label && now >= label.startMs && now <= label.endMs));
       });
+    }
+
+    async function importLabelsText(text, fileName = '') {
+      const payload = JSON.parse(text);
+      const rawLabels = Array.isArray(payload) ? payload : payload.labels;
+      if (!Array.isArray(rawLabels)) throw new Error('labels.json 中没有 labels 数组');
+      const labels = rawLabels
+        .map((label, index) => normalizeLabel(label, index))
+        .filter(Boolean);
+      const seen = new Set();
+      labels.forEach((label, index) => {
+        const baseId = label.id || `label_${String(index + 1).padStart(3, '0')}`;
+        let nextId = baseId;
+        let suffix = 2;
+        while (seen.has(nextId)) nextId = `${baseId}_${suffix++}`;
+        label.id = nextId;
+        seen.add(nextId);
+      });
+      state.labels = labels;
+      state.labelsSourceFile = fileName;
+      resetLabelEditor();
+      renderLabels();
+      drawAll();
+      if (!labels.length) alert('已导入文件，但没有有效标注窗口。');
+    }
+
+    function looksLikeLabels(text) {
+      try {
+        const payload = JSON.parse(text);
+        return Array.isArray(payload?.labels) || Array.isArray(payload);
+      } catch (err) {
+        return false;
+      }
+    }
+
+    async function loadUserFile(file) {
+      const text = await file.text();
+      if (/labels?\.json$/i.test(file.name) || looksLikeLabels(text)) {
+        await importLabelsText(text, file.name);
+      } else {
+        await loadText(text, file.name);
+      }
     }
 
     function downloadLabels() {
       const payload = {
         schema: 'ski_imu_labels_v0',
         sourceFileName: state.fileName,
+        labelsSourceFile: state.labelsSourceFile,
         timebase: 'sessionElapsedMs',
         durationMs: Math.round(state.duration * 1000),
         exportedAt: Date.now(),
+        labelCount: state.labels.length,
         labels: state.labels
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1349,8 +1549,23 @@
 
     el.markStartBtn.addEventListener('click', markLabelStart);
     el.markEndBtn.addEventListener('click', markLabelEnd);
-    el.addLabelBtn.addEventListener('click', addLabel);
+    el.addLabelBtn.addEventListener('click', saveLabel);
+    el.cancelEditBtn.addEventListener('click', resetLabelEditor);
+    el.importLabelsBtn.addEventListener('click', () => el.labelFileInput.click());
     el.downloadLabelsBtn.addEventListener('click', downloadLabels);
+    el.clearLabelsBtn.addEventListener('click', clearLabels);
+
+    el.labelFileInput.addEventListener('change', async () => {
+      const file = el.labelFileInput.files?.[0];
+      if (!file) return;
+      try {
+        await importLabelsText(await file.text(), file.name);
+      } catch (err) {
+        alert('导入标注失败：' + err.message);
+      } finally {
+        el.labelFileInput.value = '';
+      }
+    });
 
     el.loadDefaultBtn.addEventListener('click', async () => {
       try {
@@ -1371,7 +1586,13 @@
     el.fileInput.addEventListener('change', async () => {
       const file = el.fileInput.files?.[0];
       if (!file) return;
-      await loadText(await file.text(), file.name);
+      try {
+        await loadUserFile(file);
+      } catch (err) {
+        alert('解析文件失败：' + err.message);
+      } finally {
+        el.fileInput.value = '';
+      }
     });
 
     el.dropZone.addEventListener('dragover', event => {
@@ -1389,9 +1610,9 @@
       const file = event.dataTransfer.files?.[0];
       if (!file) return;
       try {
-        await loadText(await file.text(), file.name);
+        await loadUserFile(file);
       } catch (err) {
-        alert('解析日志失败：' + err.message);
+        alert('解析文件失败：' + err.message);
       }
     });
 

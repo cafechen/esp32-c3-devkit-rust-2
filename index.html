@@ -342,6 +342,40 @@
       overflow-wrap: anywhere;
     }
 
+    .debugTools {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .debugList {
+      display: grid;
+      gap: 6px;
+      max-height: 240px;
+      overflow-y: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      background: rgba(0,0,0,0.16);
+    }
+
+    .debugLine {
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      color: #dce8e4;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 11px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+
+    .debugLine:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
     .feedback {
       border-left: 4px solid #64727a;
       border-radius: 8px;
@@ -476,6 +510,13 @@
         <h2>动作反馈</h2>
         <div id="feedbackList" class="feedbackList"></div>
 
+        <h2>连接调试</h2>
+        <div class="debugTools">
+          <button id="copyDebugBtn" class="secondary">复制调试</button>
+          <button id="clearDebugBtn" class="secondary">清空调试</button>
+        </div>
+        <div id="debugList" class="debugList"></div>
+
         <h2>记录管理</h2>
         <div class="recordTools">
           <input id="renameInput" value="" maxlength="40" aria-label="新记录名称" />
@@ -501,6 +542,9 @@
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const RX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
     const TX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+    const BINARY_FRAME_MAGIC = 0xA5;
+    const BINARY_FRAME_BYTES = 20;
+    const ORIENTATION_ALPHA = 0.98;
 
     const IS_ANDROID_APP = Boolean(window.SkiAndroid?.isAndroidApp?.());
     const MAX_SAMPLES = 700;
@@ -526,6 +570,7 @@
       sessionStartedAt: 0,
       logs: [],
       selectedLogName: '',
+      debugLines: [],
       latestMetrics: null,
       chart: { waistRoll: [], leftYaw: [], rightYaw: [] }
     };
@@ -572,6 +617,9 @@
       recordCount: document.getElementById('recordCount'),
       recordMeta: document.getElementById('recordMeta'),
       feedbackList: document.getElementById('feedbackList'),
+      debugList: document.getElementById('debugList'),
+      copyDebugBtn: document.getElementById('copyDebugBtn'),
+      clearDebugBtn: document.getElementById('clearDebugBtn'),
       renameInput: document.getElementById('renameInput'),
       refreshLogsBtn: document.getElementById('refreshLogsBtn'),
       renameLogBtn: document.getElementById('renameLogBtn'),
@@ -592,10 +640,28 @@
         txChar: null,
         rxChar: null,
         buffer: '',
+        nativeConnected: false,
+        estimator: createEstimatorState(),
         samples: [],
         last: null,
         lastSeen: 0,
-        lastPacketText: ''
+        lastPacketText: '',
+        lastDebugPacketMs: 0
+      };
+    }
+
+    function createEstimatorState() {
+      return {
+        initialized: false,
+        roll: 0,
+        pitch: 0,
+        yaw: 0,
+        baseRoll: 0,
+        basePitch: 0,
+        baseYaw: 0,
+        calibrated: false,
+        lastSensorMs: NaN,
+        lastHostTs: 0
       };
     }
 
@@ -606,6 +672,15 @@
 
     function clampScore(v) {
       return Math.round(clip(v, 0, 100));
+    }
+
+    function radToDeg(rad) {
+      return rad * 180 / Math.PI;
+    }
+
+    function finiteNumber(value, fallback = NaN) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
     }
 
     function mean(arr, getter = v => v) {
@@ -719,18 +794,20 @@
       return Boolean(sensors.W.last);
     }
 
-    function parsePacket(line, fallbackId) {
+    function parsePacket(line, fallbackId, options = {}) {
       const text = String(line || '').trim();
       if (!text) return null;
 
       if (text[0] === '{') {
         const data = JSON.parse(text);
-        const id = data.id || fallbackId;
+        const reportedId = data.id || fallbackId;
+        const id = options.forceFallbackId && fallbackId ? fallbackId : reportedId;
         const rollDeg = Number.isFinite(Number(data.ed)) ? Number(data.ed) : Number(data.r) * 180 / Math.PI;
         const pitchDeg = Number.isFinite(Number(data.pd)) ? Number(data.pd) : Number(data.p) * 180 / Math.PI;
         const yawDeg = Number.isFinite(Number(data.yd)) ? Number(data.yd) : Number(data.y) * 180 / Math.PI;
         return normalizeSample({
           id,
+          reportedId,
           seq: Number(data.seq || 0),
           sensorMs: Number.isFinite(Number(data.ms)) ? Number(data.ms) : Number(data.t || 0) * 1000,
           ax: Number(data.ax),
@@ -749,8 +826,10 @@
 
       const p = text.split(',');
       if (p[0] !== 'S' || p.length < 14) return null;
+      const reportedId = p[1] || fallbackId;
       return normalizeSample({
-        id: p[1] || fallbackId,
+        id: options.forceFallbackId && fallbackId ? fallbackId : reportedId,
+        reportedId,
         seq: Number(p[2]),
         sensorMs: Number(p[3]),
         ax: Number(p[4]) / 1000,
@@ -767,9 +846,100 @@
       });
     }
 
+    function bytesFromBase64(b64) {
+      const bin = atob(String(b64 || ''));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 0xFF;
+      return bytes;
+    }
+
+    function parseBinaryFrame(input, fallbackId, options = {}, offset = 0) {
+      const view = input instanceof DataView
+        ? input
+        : new DataView(input.buffer, input.byteOffset || 0, input.byteLength || input.length);
+      if (view.byteLength - offset < BINARY_FRAME_BYTES) return null;
+      if (view.getUint8(offset) !== BINARY_FRAME_MAGIC) return null;
+
+      const reportedId = String.fromCharCode(view.getUint8(offset + 1));
+      const id = options.forceFallbackId && fallbackId ? fallbackId : reportedId;
+      return normalizeSample({
+        id,
+        reportedId,
+        seq: view.getUint16(offset + 2, true),
+        sensorMs: view.getUint32(offset + 4, true),
+        ax: view.getInt16(offset + 8, true) / 1000,
+        ay: view.getInt16(offset + 10, true) / 1000,
+        az: view.getInt16(offset + 12, true) / 1000,
+        gx: view.getInt16(offset + 14, true) / 10,
+        gy: view.getInt16(offset + 16, true) / 10,
+        gz: view.getInt16(offset + 18, true) / 10,
+        source: 'bin20'
+      });
+    }
+
+    function completeOrientation(id, sample, hostTs) {
+      const sensor = sensors[id];
+      if (!sensor) return sample;
+      const rollIn = finiteNumber(sample.roll);
+      const pitchIn = finiteNumber(sample.pitch);
+      const yawIn = finiteNumber(sample.yaw);
+      if (Number.isFinite(rollIn) && Number.isFinite(pitchIn) && Number.isFinite(yawIn)) {
+        return {
+          roll: rollIn,
+          pitch: pitchIn,
+          yaw: yawIn,
+          cal: Number(sample.cal || 0)
+        };
+      }
+
+      const e = sensor.estimator;
+      const ax = finiteNumber(sample.ax, 0);
+      const ay = finiteNumber(sample.ay, 0);
+      const az = finiteNumber(sample.az, 1);
+      const gx = finiteNumber(sample.gx, 0);
+      const gy = finiteNumber(sample.gy, 0);
+      const gz = finiteNumber(sample.gz, 0);
+      const accRoll = radToDeg(Math.atan2(ay, az));
+      const accPitch = radToDeg(Math.atan2(-ax, Math.sqrt(ay * ay + az * az)));
+
+      let dt = 0;
+      const sensorMs = finiteNumber(sample.sensorMs);
+      if (Number.isFinite(sensorMs) && Number.isFinite(e.lastSensorMs)) {
+        dt = (sensorMs - e.lastSensorMs) / 1000;
+      }
+      if (!(dt > 0 && dt < 0.2) && e.lastHostTs) {
+        dt = (hostTs - e.lastHostTs) / 1000;
+      }
+      if (!(dt > 0 && dt < 0.2)) dt = 0.01;
+
+      if (!e.initialized) {
+        e.roll = accRoll;
+        e.pitch = accPitch;
+        e.yaw = 0;
+        e.baseRoll = e.roll;
+        e.basePitch = e.pitch;
+        e.baseYaw = e.yaw;
+        e.initialized = true;
+      } else {
+        e.roll = ORIENTATION_ALPHA * (e.roll + gx * dt) + (1 - ORIENTATION_ALPHA) * accRoll;
+        e.pitch = ORIENTATION_ALPHA * (e.pitch + gy * dt) + (1 - ORIENTATION_ALPHA) * accPitch;
+        e.yaw = (e.yaw + gz * dt) * 0.9995;
+      }
+      e.lastSensorMs = sensorMs;
+      e.lastHostTs = hostTs;
+
+      return {
+        roll: e.roll - e.baseRoll,
+        pitch: e.pitch - e.basePitch,
+        yaw: e.yaw - e.baseYaw,
+        cal: e.calibrated ? 1 : 0
+      };
+    }
+
     function normalizeSample(sample) {
       if (!sample || !ROLES[sample.id]) return null;
       const hostTs = Date.now();
+      const orientation = completeOrientation(sample.id, sample, hostTs);
       return {
         kind: 'raw',
         hostTs,
@@ -783,10 +953,11 @@
         gx: Number(sample.gx),
         gy: Number(sample.gy),
         gz: Number(sample.gz),
-        roll: Number(sample.roll),
-        pitch: Number(sample.pitch),
-        yaw: Number(sample.yaw),
-        cal: Number(sample.cal || 0),
+        roll: orientation.roll,
+        pitch: orientation.pitch,
+        yaw: orientation.yaw,
+        cal: orientation.cal,
+        reportedId: sample.reportedId && sample.reportedId !== sample.id ? sample.reportedId : undefined,
         source: sample.source || 'unknown'
       };
     }
@@ -820,6 +991,57 @@
       }
       if (IS_ANDROID_APP) {
         window.SkiAndroid.appendLogLine(text);
+      }
+    }
+
+    function debugStamp() {
+      const d = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    function pushDebug(text) {
+      const line = `[${debugStamp()}] ${String(text || '')}`;
+      appState.debugLines.unshift(line);
+      if (appState.debugLines.length > 120) appState.debugLines.length = 120;
+      renderDebug();
+    }
+
+    function renderDebug() {
+      if (!el.debugList) return;
+      el.debugList.innerHTML = '';
+      if (!appState.debugLines.length) {
+        const empty = document.createElement('div');
+        empty.className = 'debugLine';
+        empty.textContent = '暂无调试信息';
+        el.debugList.appendChild(empty);
+        return;
+      }
+      appState.debugLines.forEach(line => {
+        const div = document.createElement('div');
+        div.className = 'debugLine';
+        div.textContent = line;
+        el.debugList.appendChild(div);
+      });
+    }
+
+    async function copyDebug() {
+      const text = appState.debugLines.slice().reverse().join('\n');
+      if (!text) return;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const area = document.createElement('textarea');
+          area.value = text;
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand('copy');
+          area.remove();
+        }
+        pushDebug('调试信息已复制');
+      } catch (err) {
+        pushDebug(`复制失败：${err.message || err}`);
       }
     }
 
@@ -1243,6 +1465,10 @@
       value.textContent = id === 'W'
         ? `${last.roll.toFixed(1)}°`
         : `${last.pitch.toFixed(1)}°`;
+      if (sensor.connected && !fresh) {
+        meta.textContent = `等待新数据 · seq ${last.seq} · ${sampleHz(id).toFixed(0)} Hz`;
+        return;
+      }
       meta.textContent = `seq ${last.seq} · ${sampleHz(id).toFixed(0)} Hz · ${last.cal ? '已校准' : '未校准'}`;
     }
 
@@ -1296,7 +1522,9 @@
     window.AndroidBle = {
       handleNativeConnection(id, connected) {
         if (!sensors[id]) return;
+        sensors[id].nativeConnected = connected;
         sensors[id].connected = connected;
+        pushDebug(`${ROLES[id].label} 原生连接 ${connected ? 'ON' : 'OFF'}`);
         if (!connected) {
           sensors[id].device = null;
           sensors[id].server = null;
@@ -1309,19 +1537,60 @@
       },
       handleNativeLine(id, line) {
         try {
-          const sample = parsePacket(line, id);
+          const sample = parsePacket(line, id, { forceFallbackId: true });
           applySample(sample);
+          if (sample) {
+            const sensor = sensors[sample.id];
+            const now = Date.now();
+            if (sensor && (!sensor.lastDebugPacketMs || now - sensor.lastDebugPacketMs > 3000)) {
+              const reported = sample.reportedId ? ` 上报ID=${sample.reportedId}` : '';
+              pushDebug(`${ROLES[sample.id].label} 数据 seq=${sample.seq}${reported}`);
+              sensor.lastDebugPacketMs = now;
+            }
+          }
         } catch (err) {
+          pushDebug(`数据解析失败：${String(line || '').slice(0, 120)}`);
           console.log('packet parse failed', line, err);
+        }
+      },
+      handleNativeBinary(id, b64) {
+        try {
+          const bytes = bytesFromBase64(b64);
+          for (let offset = 0; offset + BINARY_FRAME_BYTES <= bytes.length; offset += BINARY_FRAME_BYTES) {
+            const sample = parseBinaryFrame(bytes, id, { forceFallbackId: true }, offset);
+            if (!sample) continue;
+            applySample(sample);
+            const sensor = sensors[sample.id];
+            const now = Date.now();
+            if (sensor && (!sensor.lastDebugPacketMs || now - sensor.lastDebugPacketMs > 3000)) {
+              const reported = sample.reportedId ? ` 上报ID=${sample.reportedId}` : '';
+              pushDebug(`${ROLES[sample.id].label} 二进制 seq=${sample.seq}${reported}`);
+              sensor.lastDebugPacketMs = now;
+            }
+          }
+        } catch (err) {
+          pushDebug(`二进制解析失败：${err.message || err}`);
         }
       },
       handleNativeStatus(text) {
         el.status.textContent = text;
+      },
+      handleNativeDebug(text) {
+        pushDebug(text);
       }
     };
 
     function handleNotify(sensor, event) {
-      const text = new TextDecoder().decode(event.target.value);
+      const value = event.target.value;
+      if (value && value.byteLength >= BINARY_FRAME_BYTES && value.getUint8(0) === BINARY_FRAME_MAGIC) {
+        for (let offset = 0; offset + BINARY_FRAME_BYTES <= value.byteLength; offset += BINARY_FRAME_BYTES) {
+          const sample = parseBinaryFrame(value, sensor.id, {}, offset);
+          if (sample) applySample(sample);
+        }
+        return;
+      }
+
+      const text = new TextDecoder().decode(value);
       sensor.buffer += text;
       let idx;
       while ((idx = sensor.buffer.indexOf('\n')) >= 0) {
@@ -1340,6 +1609,7 @@
     async function connectSensor(id) {
       const sensor = sensors[id];
       if (IS_ANDROID_APP) {
+        pushDebug(`${sensor.connected ? '点击断开' : '点击连接'}${ROLES[id].label}`);
         if (sensor.connected) {
           window.SkiAndroid.disconnectBoard(id);
         } else {
@@ -1392,6 +1662,16 @@
     async function sendCalibration() {
       const hostTs = Date.now();
       const connectedSensors = Object.values(sensors).filter(s => s.connected).map(s => s.id);
+      for (const sensor of Object.values(sensors)) {
+        const e = sensor.estimator;
+        if (e.initialized) {
+          e.baseRoll = e.roll;
+          e.basePitch = e.pitch;
+          e.baseYaw = e.yaw;
+          e.calibrated = true;
+        }
+      }
+      pushDebug('手机端姿态零点已更新');
       if (IS_ANDROID_APP) {
         window.SkiAndroid.sendCalibration();
         if (connectedSensors.length) {
@@ -1602,6 +1882,11 @@
     el.connectWaistBtn.addEventListener('click', () => connectSensor('W').catch(e => alert(e.message)));
     el.connectLeftBtn.addEventListener('click', () => connectSensor('L').catch(e => alert(e.message)));
     el.connectRightBtn.addEventListener('click', () => connectSensor('R').catch(e => alert(e.message)));
+    el.copyDebugBtn.addEventListener('click', () => copyDebug());
+    el.clearDebugBtn.addEventListener('click', () => {
+      appState.debugLines = [];
+      renderDebug();
+    });
     el.calibrateBtn.addEventListener('click', () => sendCalibration().catch(e => alert(e.message)));
     el.startLogBtn.addEventListener('click', startLog);
     el.stopLogBtn.addEventListener('click', stopLog);
@@ -1623,7 +1908,7 @@
 
     setInterval(() => {
       for (const sensor of Object.values(sensors)) {
-        if (sensor.connected && Date.now() - sensor.lastSeen > 2500) {
+        if (!IS_ANDROID_APP && sensor.connected && Date.now() - sensor.lastSeen > 2500) {
           sensor.connected = false;
         }
       }
@@ -1765,6 +2050,8 @@
     resizeChart();
     resize3D();
     refreshLogList();
+    renderDebug();
+    pushDebug(`App 启动 Android=${IS_ANDROID_APP ? 'yes' : 'no'}`);
     updateUI();
     requestAnimationFrame(drawChart);
     requestAnimationFrame(animate3D);
