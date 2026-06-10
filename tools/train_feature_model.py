@@ -7,7 +7,8 @@ files passed next to one package.
 
 The model is intentionally dependency-free: each label window becomes one
 training row, numeric phone-rule features are aggregated over the window, and a
-nearest-centroid classifier is trained for action, quality, and errorType.
+nearest-centroid classifier is trained for action, quality, errorType, and
+stageCode.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
-TARGETS = ("action", "quality", "errorType")
+TARGETS = ("action", "quality", "errorType", "stageCode")
 IGNORE_FEATURE_KEYS = {
     "kind",
     "hostTs",
@@ -324,6 +325,14 @@ def build_samples(package: PackageData, min_frames: int) -> List[Dict[str, Any]]
             continue
         features = aggregate_window(rows, start_ms, end_ms)
         error_type = str(label.get("errorType") or label.get("error_type") or "").strip() or "none"
+        stage_code = str(
+            label.get("stageCode")
+            or label.get("stage_code")
+            or label.get("phaseCode")
+            or label.get("action")
+            or "other"
+        )
+        stage_name = str(label.get("stageName") or label.get("stage_name") or stage_code)
         samples.append(
             {
                 "sample_id": f"{Path(package.name).stem}:{index + 1}",
@@ -338,6 +347,8 @@ def build_samples(package: PackageData, min_frames: int) -> List[Dict[str, Any]]
                 "action": str(label.get("action") or "other"),
                 "quality": str(label.get("quality") or "normal"),
                 "errorType": error_type,
+                "stageCode": stage_code,
+                "stageName": stage_name,
                 "comment": str(label.get("comment") or ""),
                 "features": features,
             }
@@ -470,6 +481,8 @@ def write_samples_csv(path: Path, samples: List[Dict[str, Any]], feature_names: 
         "action",
         "quality",
         "errorType",
+        "stageCode",
+        "stageName",
         "comment",
     ] + list(feature_names)
     with path.open("w", newline="", encoding="utf-8") as fh:

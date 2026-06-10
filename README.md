@@ -125,7 +125,7 @@ http://localhost:8000/index.html
 - `replay.html`：加载 JSONL 日志，回放左右立刃角、动作阶段、同步分和估算滑行路径。
 - 默认会尝试加载 `ski_imu_log_1777385783530.jsonl`。
 - 也可以把任意 JSONL 日志拖到页面左侧区域，或通过文件选择器打开。
-- 教练标注支持设置动作窗口、动作类型、动作质量、错误类型和备注，也可以导入已有 `labels.json` 后继续编辑、删除、清空和重新导出。
+- 教练标注支持同步加载视频，设置阶段窗口，标注 `TRANSITION_55`、`RIGHT_UPPER`、`RIGHT_LOWER`、`LEFT_UPPER`、`LEFT_LOWER` 五个状态/阶段，也可以导入已有 `labels.json` 后继续编辑、删除、清空和重新导出。
 
 ## Android 手机客户端
 
@@ -161,8 +161,22 @@ gradle assembleDebug
 
 1. 解压训练 ZIP，或者从 ZIP 中取出 `source_log.jsonl` / `raw_imu.jsonl`。
 2. 用本地 HTTP 服务打开 `replay.html`。
-3. 加载日志，播放或拖动时间轴，设置起点/终点并添加动作标签。
-4. 导出 `labels.json`。如果后续要修改，可以再导入这个 `labels.json` 继续编辑。
+3. 加载日志和对应视频。视频可以通过文件选择器或拖拽加载；如果视频与 IMU 起点不一致，用“视频偏移 ms”校准。
+4. 播放或拖动时间轴，设置起点/终点，并从五阶段中选择：
+   - `TRANSITION_55`：55 分力点，判断是否完成换弯。
+   - `RIGHT_UPPER`：右腿弯上弯，判断右脚压力是否建立。
+   - `RIGHT_LOWER`：右腿弯下弯，判断右脚压力是否释放。
+   - `LEFT_UPPER`：左腿弯上弯，判断左脚压力是否建立。
+   - `LEFT_LOWER`：左腿弯下弯，判断左脚压力是否释放。
+5. 每个阶段模板会随 `labels.json` 导出阶段名、物理含义、状态达成条件、进入下一状态条件、必看指标和辅助指标。
+6. 导出 `labels.json`。如果后续要修改，可以再导入这个 `labels.json` 继续编辑。
+
+`labels.json` 使用 `ski_imu_stage_labels_v1` schema。为了兼容旧训练流程，每条标注仍然保留 `action`、`quality`、`errorType` 字段；新增的阶段字段是：
+
+- `stageCode` / `stageName`：阶段编码和中文名。
+- `physicalMeaning`、`reachCondition`、`nextCondition`：阶段判断依据。
+- `goal`、`requiredIndicators`、`helperIndicators`：训练和复核时需要看的目标与指标。
+- `sourceVideo`、`videoOffsetMs`：视频来源和同步偏移。
 
 训练特征模型：
 
@@ -179,7 +193,7 @@ python tools/train_feature_model.py path/to/training_data --output models/featur
 脚本会输出：
 
 - `feature_model.json`：无第三方依赖的最近质心特征模型，可作为手机低频推理的第一版模型格式。
-- `metrics.json`：训练集或按记录留一验证的准确率和混淆矩阵。
+- `metrics.json`：训练集或按记录留一验证的准确率和混淆矩阵，默认包含 `action`、`quality`、`errorType` 和 `stageCode`。
 - `training_samples.csv`：每个标注窗口聚合后的训练样本，方便人工检查特征和标签。
 
 ## 数据格式

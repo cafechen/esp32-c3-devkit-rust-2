@@ -81,7 +81,7 @@ Android 内部记录仍然使用 JSONL，每行一个 JSON 对象。开始记录
 - `labels.json`：空标注文件，占位给电脑端回放标注工具写入动作窗口
 - `source_log.jsonl`：原始内部日志备份，便于兼容旧回放和排查问题
 
-滑雪现场不要求学员操作手机。采集端只负责连接、校准、记录；动作标签由教练在 `replay.html` 回放时补充。教练可以拖动时间轴，设置动作起点和终点，选择动作类型、质量和错误类型，然后导出 `labels.json`。
+滑雪现场不要求学员操作手机。采集端只负责连接、校准、记录；动作标签由教练在 `replay.html` 回放时补充。教练可以加载视频和日志，拖动统一时间轴，设置阶段起点和终点，选择 `TRANSITION_55`、`RIGHT_UPPER`、`RIGHT_LOWER`、`LEFT_UPPER`、`LEFT_LOWER` 五个状态/阶段，然后导出 `labels.json`。导出的 `ski_imu_stage_labels_v1` 会保留兼容训练脚本的 `action/quality/errorType` 字段，并额外写入阶段名、物理含义、状态条件、下一状态条件、必看指标和辅助指标。
 
 App 内的记录管理支持：
 

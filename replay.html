@@ -33,7 +33,7 @@
 
     input[type="range"] { width: 100%; accent-color: #2563eb; }
     input[type="file"] { width: 100%; color: #42535f; }
-    input[type="text"], select {
+    input[type="text"], input[type="number"], select {
       width: 100%;
       border: 1px solid #dce6e9;
       border-radius: 8px;
@@ -58,7 +58,7 @@
 
     #stage {
       display: grid;
-      grid-template-rows: minmax(420px, 1fr) 240px;
+      grid-template-rows: minmax(220px, 0.6fr) minmax(360px, 1fr) 240px;
       min-height: 100vh;
     }
 
@@ -139,6 +139,51 @@
       font-size: 13px;
       line-height: 1.45;
       margin-top: 10px;
+    }
+
+    .inlineField {
+      display: grid;
+      gap: 5px;
+      color: #647783;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .stageHelp {
+      grid-column: 1 / -1;
+      border-radius: 8px;
+      border: 1px solid #dce6e9;
+      background: #f7fbfb;
+      padding: 10px;
+      color: #526977;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .stageHelpTitle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: #16232c;
+      font-size: 14px;
+      font-weight: 900;
+      margin-bottom: 6px;
+    }
+
+    .stageCode {
+      color: #2563eb;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .stageFacts {
+      display: grid;
+      gap: 4px;
+    }
+
+    .stageFacts strong {
+      color: #334755;
     }
 
     #edgeChangeList {
@@ -229,6 +274,80 @@
       display: block;
     }
 
+    #videoWrap {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 10px;
+      padding: 12px;
+      background: #101820;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      min-height: 220px;
+    }
+
+    .videoHead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: rgba(255,255,255,0.86);
+      font-weight: 900;
+      font-size: 14px;
+    }
+
+    #videoGrid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 10px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .videoTile {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 168px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0b1117;
+      border: 1px solid rgba(255,255,255,0.10);
+    }
+
+    .videoTitle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      color: rgba(255,255,255,0.84);
+      font-size: 12px;
+      line-height: 1.25;
+      min-width: 0;
+    }
+
+    .videoTitle span:first-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .videoTile video {
+      width: 100%;
+      height: 100%;
+      min-height: 130px;
+      object-fit: contain;
+      background: #05080c;
+    }
+
+    #videoEmpty {
+      display: grid;
+      place-items: center;
+      min-height: 154px;
+      border: 1px dashed rgba(255,255,255,0.22);
+      border-radius: 8px;
+      color: rgba(255,255,255,0.54);
+      font-size: 13px;
+    }
+
     #pathWrap {
       position: relative;
       min-height: 420px;
@@ -259,7 +378,7 @@
     @media (max-width: 920px) {
       #app { grid-template-columns: 1fr; }
       #panel { border-right: 0; border-bottom: 1px solid #dce6e9; }
-      #stage { min-height: 700px; grid-template-rows: 460px 220px; }
+      #stage { min-height: 900px; grid-template-rows: 260px 420px 220px; }
     }
   </style>
 </head>
@@ -275,10 +394,14 @@
         <button id="loadLocalBtn" class="secondary wide">加载本机最新日志</button>
         <button id="loadDefaultBtn" class="secondary wide">加载默认日志</button>
         <input id="fileInput" class="wide" type="file" accept=".jsonl,.json,text/plain" />
+        <input id="videoInput" class="wide" type="file" accept="video/*,.mp4,.mov,.m4v,.webm" multiple />
+        <label class="inlineField wide">视频偏移 ms
+          <input id="videoOffsetInput" type="number" step="100" value="0" />
+        </label>
       </div>
 
       <div id="dropZone">
-        可把 JSONL 日志拖到这里。当前 BLE 日志没有 GPS/速度，画面中的滑行路径是用立刃角估算的示意轨迹；下方曲线是原始传感器数据。
+        可把 JSONL 日志、labels.json 或视频拖到这里。当前 BLE 日志没有 GPS/速度，画面中的滑行路径是用立刃角估算的示意轨迹；下方曲线是原始传感器数据。
       </div>
 
       <h2>播放</h2>
@@ -291,23 +414,21 @@
       <div class="controls">
         <button id="markStartBtn">设为起点</button>
         <button id="markEndBtn" class="secondary">设为终点</button>
-        <select id="actionSelect" class="wide" aria-label="动作类型">
-          <option value="wedge_turn_left">犁式左转</option>
-          <option value="wedge_turn_right">犁式右转</option>
-          <option value="parallel_turn_left">平行左转</option>
-          <option value="parallel_turn_right">平行右转</option>
-          <option value="transition">重心转换/换弯</option>
-          <option value="straight_glide">直滑</option>
-          <option value="stop">停止</option>
-          <option value="other">其他</option>
+        <select id="actionSelect" class="wide" aria-label="阶段">
+          <option value="TRANSITION_55">55分力点</option>
+          <option value="RIGHT_UPPER">右腿弯上弯</option>
+          <option value="RIGHT_LOWER">右腿弯下弯</option>
+          <option value="LEFT_UPPER">左腿弯上弯</option>
+          <option value="LEFT_LOWER">左腿弯下弯</option>
         </select>
+        <div id="stageHelp" class="stageHelp"></div>
         <select id="qualitySelect" class="wide" aria-label="动作质量">
-          <option value="good">好</option>
-          <option value="normal">一般</option>
-          <option value="bad">需要纠正</option>
+          <option value="good">确认清晰</option>
+          <option value="normal">可用</option>
+          <option value="bad">待复核</option>
         </select>
-        <input id="errorInput" class="wide" type="text" placeholder="错误类型，例如 backward_lean / late_weight_shift" />
-        <input id="commentInput" class="wide" type="text" placeholder="教练备注" />
+        <input id="errorInput" class="wide" type="text" placeholder="复核项，例如 late_weight_shift / backward_lean" />
+        <input id="commentInput" class="wide" type="text" placeholder="备注" />
         <button id="addLabelBtn" class="warn">添加标注</button>
         <button id="cancelEditBtn" class="secondary">取消编辑</button>
         <button id="importLabelsBtn" class="secondary">导入 labels.json</button>
@@ -382,6 +503,15 @@
     </aside>
 
     <main id="stage">
+      <section id="videoWrap">
+        <div class="videoHead">
+          <span>视频</span>
+          <span id="videoStatus">未加载</span>
+        </div>
+        <div id="videoGrid">
+          <div id="videoEmpty">加载视频后显示画面</div>
+        </div>
+      </section>
       <section id="pathWrap">
         <canvas id="pathCanvas"></canvas>
       </section>
@@ -394,6 +524,58 @@
   <script>
     const DEFAULT_LOG = 'ski_imu_log_1777385783530.jsonl';
     const IS_ANDROID_APP = Boolean(window.SkiAndroid?.isAndroidApp?.());
+    const STAGE_TEMPLATES = {
+      TRANSITION_55: {
+        code: 'TRANSITION_55',
+        name: '55分力点',
+        physicalMeaning: '左右脚接近 5:5，正在准备换弯',
+        reachCondition: 'abs(load_balance) < 0.15，且雪板接近平板，重心准备换向',
+        nextCondition: 'load_balance 持续变正进入右腿弯上弯；持续变负进入左腿弯上弯',
+        goal: '判断是否完成换弯',
+        requiredIndicators: ['load_balance', 'transition_55_quality', 'edge_angle', 'COM_shift_timing'],
+        helperIndicators: ['waist_roll_change_rate', 'transition_smoothness']
+      },
+      RIGHT_UPPER: {
+        code: 'RIGHT_UPPER',
+        name: '右腿弯上弯',
+        physicalMeaning: '右脚外侧脚压力建立，右脚 5→9，左脚 5→1',
+        reachCondition: 'load_balance > 0.15 且持续增大',
+        nextCondition: '右脚承重达到局部峰值，进入右腿弯下弯',
+        goal: '判断右脚压力是否建立',
+        requiredIndicators: ['right_load', 'load_balance_slope', 'outside_load_estimate', 'right_leg_yaw_rate_peak'],
+        helperIndicators: ['trunk_shin_angle_diff', 'backward_lean_score']
+      },
+      RIGHT_LOWER: {
+        code: 'RIGHT_LOWER',
+        name: '右腿弯下弯',
+        physicalMeaning: '右脚外侧脚压力释放，右脚 9→5，左脚 1→5',
+        reachCondition: 'load_balance > 0.15 但开始下降',
+        nextCondition: 'abs(load_balance) < 0.15，回到 55 分力点',
+        goal: '判断右脚压力是否释放',
+        requiredIndicators: ['right_load下降趋势', 'load_release_score', 'COM_shift_direction'],
+        helperIndicators: ['lateral_acc_peak_signed', 'transition_smoothness']
+      },
+      LEFT_UPPER: {
+        code: 'LEFT_UPPER',
+        name: '左腿弯上弯',
+        physicalMeaning: '左脚外侧脚压力建立，左脚 5→9，右脚 5→1',
+        reachCondition: 'load_balance < -0.15 且绝对值持续增大',
+        nextCondition: '左脚承重达到局部峰值，进入左腿弯下弯',
+        goal: '判断左脚压力是否建立',
+        requiredIndicators: ['left_load', 'load_balance_slope', 'outside_load_estimate', 'left_leg_yaw_rate_peak'],
+        helperIndicators: ['trunk_shin_angle_diff', 'backward_lean_score']
+      },
+      LEFT_LOWER: {
+        code: 'LEFT_LOWER',
+        name: '左腿弯下弯',
+        physicalMeaning: '左脚外侧脚压力释放，左脚 9→5，右脚 1→5',
+        reachCondition: 'load_balance < -0.15 但绝对值开始下降',
+        nextCondition: 'abs(load_balance) < 0.15，回到 55 分力点',
+        goal: '判断左脚压力是否释放',
+        requiredIndicators: ['left_load下降趋势', 'load_release_score', 'COM_shift_direction'],
+        helperIndicators: ['lateral_acc_peak_signed', 'transition_smoothness']
+      }
+    };
 
     const state = {
       rows: [],
@@ -410,7 +592,11 @@
       labelStartMs: null,
       labelEndMs: null,
       labelsSourceFile: '',
-      editingLabelId: null
+      editingLabelId: null,
+      videoItems: [],
+      videoOffsetMs: 0,
+      videoOnlyMs: 0,
+      syncingVideo: false
     };
 
     const el = {
@@ -420,6 +606,8 @@
       loadLocalBtn: document.getElementById('loadLocalBtn'),
       loadDefaultBtn: document.getElementById('loadDefaultBtn'),
       fileInput: document.getElementById('fileInput'),
+      videoInput: document.getElementById('videoInput'),
+      videoOffsetInput: document.getElementById('videoOffsetInput'),
       dropZone: document.getElementById('dropZone'),
       scrub: document.getElementById('scrub'),
       speedRange: document.getElementById('speedRange'),
@@ -428,6 +616,7 @@
       markStartBtn: document.getElementById('markStartBtn'),
       markEndBtn: document.getElementById('markEndBtn'),
       actionSelect: document.getElementById('actionSelect'),
+      stageHelp: document.getElementById('stageHelp'),
       qualitySelect: document.getElementById('qualitySelect'),
       errorInput: document.getElementById('errorInput'),
       commentInput: document.getElementById('commentInput'),
@@ -460,7 +649,9 @@
       rowCount: document.getElementById('rowCount'),
       durationText: document.getElementById('durationText'),
       leftRange: document.getElementById('leftRange'),
-      rightRange: document.getElementById('rightRange')
+      rightRange: document.getElementById('rightRange'),
+      videoGrid: document.getElementById('videoGrid'),
+      videoStatus: document.getElementById('videoStatus')
     };
 
     const pathCanvas = document.getElementById('pathCanvas');
@@ -515,6 +706,31 @@
     function qualityText(value) {
       const option = [...el.qualitySelect.options].find(item => item.value === value);
       return option ? option.textContent : value || 'normal';
+    }
+
+    function stageTemplate(code) {
+      return STAGE_TEMPLATES[code] || STAGE_TEMPLATES.TRANSITION_55;
+    }
+
+    function stageText(value) {
+      return STAGE_TEMPLATES[value]?.name || actionText(value);
+    }
+
+    function updateStageHelp() {
+      const tpl = stageTemplate(el.actionSelect.value);
+      el.stageHelp.innerHTML = `
+        <div class="stageHelpTitle">
+          <span>${escapeHtml(tpl.name)}</span>
+          <span class="stageCode">${escapeHtml(tpl.code)}</span>
+        </div>
+        <div class="stageFacts">
+          <div><strong>目标</strong>：${escapeHtml(tpl.goal)}</div>
+          <div><strong>物理含义</strong>：${escapeHtml(tpl.physicalMeaning)}</div>
+          <div><strong>达成条件</strong>：${escapeHtml(tpl.reachCondition)}</div>
+          <div><strong>必看指标</strong>：${escapeHtml(tpl.requiredIndicators.join('、'))}</div>
+          <div><strong>辅助指标</strong>：${escapeHtml(tpl.helperIndicators.join('、'))}</div>
+        </div>
+      `;
     }
 
     function resizeCanvas(canvas, ctx) {
@@ -842,6 +1058,187 @@
       updateLabelWindowText();
       updateUI();
       drawAll();
+      syncVideosToTimeline(true);
+    }
+
+    function isVideoFile(file) {
+      return file?.type?.startsWith('video/') || /\.(mp4|mov|m4v|webm)$/i.test(file?.name || '');
+    }
+
+    function maxVideoEndMs() {
+      let maxMs = 0;
+      for (const item of state.videoItems) {
+        const duration = Number(item.video?.duration);
+        if (Number.isFinite(duration) && duration > 0) {
+          maxMs = Math.max(maxMs, state.videoOffsetMs + duration * 1000);
+        }
+      }
+      return Math.max(0, maxMs);
+    }
+
+    function updateDurationFromVideos() {
+      if (state.frames.length) return;
+      const videoDurationMs = maxVideoEndMs();
+      if (videoDurationMs > 0) {
+        state.duration = videoDurationMs / 1000;
+        el.durationText.textContent = `${state.duration.toFixed(1)} s`;
+      }
+    }
+
+    function updateVideoStatus() {
+      if (!state.videoItems.length) {
+        el.videoStatus.textContent = '未加载';
+        return;
+      }
+      const readyCount = state.videoItems.filter(item => Number.isFinite(item.video?.duration)).length;
+      const offset = state.videoOffsetMs ? ` · 偏移 ${state.videoOffsetMs}ms` : '';
+      el.videoStatus.textContent = `${state.videoItems.length} 个视频 · ${readyCount}/${state.videoItems.length} 已就绪${offset}`;
+    }
+
+    function clearVideos() {
+      pauseVideos();
+      state.videoItems.forEach(item => URL.revokeObjectURL(item.url));
+      state.videoItems = [];
+      state.videoOnlyMs = 0;
+      renderVideos();
+      updateVideoStatus();
+    }
+
+    function loadVideoFiles(files) {
+      const videoFiles = [...files].filter(isVideoFile);
+      if (!videoFiles.length) return;
+      clearVideos();
+      state.videoItems = videoFiles.map((file, index) => ({
+        id: `video_${index + 1}`,
+        file,
+        name: file.name,
+        url: URL.createObjectURL(file),
+        video: null
+      }));
+      renderVideos();
+      updateVideoStatus();
+    }
+
+    function renderVideos() {
+      el.videoGrid.innerHTML = '';
+      if (!state.videoItems.length) {
+        const empty = document.createElement('div');
+        empty.id = 'videoEmpty';
+        empty.textContent = '加载视频后显示画面';
+        el.videoGrid.appendChild(empty);
+        return;
+      }
+
+      state.videoItems.forEach((item, index) => {
+        const tile = document.createElement('div');
+        tile.className = 'videoTile';
+        const title = document.createElement('div');
+        title.className = 'videoTitle';
+        const name = document.createElement('span');
+        name.textContent = item.name;
+        const tag = document.createElement('span');
+        tag.textContent = `#${index + 1}`;
+        title.append(name, tag);
+        const video = document.createElement('video');
+        video.src = item.url;
+        video.controls = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        video.addEventListener('loadedmetadata', () => {
+          updateDurationFromVideos();
+          updateVideoStatus();
+          syncVideosToTimeline(true);
+          updateUI();
+          drawAll();
+        });
+        video.addEventListener('seeked', () => {
+          if (state.syncingVideo) return;
+          seekTimelineToMs(video.currentTime * 1000 + state.videoOffsetMs, false);
+        });
+        video.addEventListener('play', () => {
+          if (state.syncingVideo) return;
+          state.playing = true;
+          state.lastClock = 0;
+          playVideos(video);
+          updateUI();
+        });
+        video.addEventListener('pause', () => {
+          if (state.syncingVideo) return;
+          if (state.videoItems.every(entry => entry.video?.paused !== false)) {
+            state.playing = false;
+            updateUI();
+          }
+        });
+        item.video = video;
+        tile.append(title, video);
+        el.videoGrid.appendChild(tile);
+      });
+    }
+
+    function syncVideosToTimeline(force = false) {
+      if (!state.videoItems.length) return;
+      const ms = currentElapsedMs();
+      if (!Number.isFinite(ms)) return;
+      state.syncingVideo = true;
+      for (const item of state.videoItems) {
+        const video = item.video;
+        if (!video || !Number.isFinite(video.duration)) continue;
+        const target = clamp((ms - state.videoOffsetMs) / 1000, 0, Math.max(0, video.duration - 0.04));
+        video.playbackRate = state.speed;
+        if (force || Math.abs(video.currentTime - target) > 0.14) {
+          video.currentTime = target;
+        }
+      }
+      requestAnimationFrame(() => {
+        state.syncingVideo = false;
+      });
+    }
+
+    function playVideos(sourceVideo = null) {
+      if (!state.videoItems.length) return;
+      syncVideosToTimeline(!sourceVideo);
+      state.syncingVideo = true;
+      for (const item of state.videoItems) {
+        const video = item.video;
+        if (!video || video === sourceVideo) continue;
+        video.playbackRate = state.speed;
+        video.play().catch(() => {});
+      }
+      if (!sourceVideo) {
+        for (const item of state.videoItems) {
+          const video = item.video;
+          if (!video) continue;
+          video.playbackRate = state.speed;
+          video.play().catch(() => {});
+        }
+      }
+      requestAnimationFrame(() => {
+        state.syncingVideo = false;
+      });
+    }
+
+    function pauseVideos() {
+      state.syncingVideo = true;
+      for (const item of state.videoItems) {
+        item.video?.pause();
+      }
+      requestAnimationFrame(() => {
+        state.syncingVideo = false;
+      });
+    }
+
+    function seekTimelineToMs(ms, syncVideo = true) {
+      const clampedMs = clamp(ms, 0, Math.max(0, state.duration * 1000));
+      if (state.frames.length) {
+        const targetT = clampedMs / 1000;
+        const idx = state.frames.findIndex(frame => frame.t >= targetT);
+        state.index = idx >= 0 ? idx : state.frames.length - 1;
+      } else {
+        state.videoOnlyMs = clampedMs;
+      }
+      updateUI();
+      drawAll();
+      if (syncVideo) syncVideosToTimeline(true);
     }
 
     function updateStaticInfo() {
@@ -856,7 +1253,18 @@
 
     function updateUI() {
       const frame = state.frames[state.index];
-      if (!frame) return;
+      if (!frame) {
+        const nowMs = currentElapsedMs();
+        const safeNowMs = Number.isFinite(nowMs) ? nowMs : 0;
+        const totalMs = Math.max(0, state.duration * 1000);
+        el.timeText.textContent = totalMs
+          ? `${(safeNowMs / 1000).toFixed(2)} / ${state.duration.toFixed(2)} s`
+          : '--';
+        el.scrub.value = totalMs > 0 ? Math.round((safeNowMs / totalMs) * 1000) : 0;
+        el.playBtn.textContent = state.playing ? '暂停' : '播放';
+        highlightLabels();
+        return;
+      }
 
       const left = edgeOf(frame, 'L');
       const right = edgeOf(frame, 'R');
@@ -940,7 +1348,8 @@
 
     function currentElapsedMs() {
       const frame = state.frames[state.index];
-      return frame ? Math.round(frame.t * 1000) : NaN;
+      if (frame) return Math.round(frame.t * 1000);
+      return Number.isFinite(state.videoOnlyMs) ? Math.round(state.videoOnlyMs) : NaN;
     }
 
     function updateLabelWindowText() {
@@ -969,14 +1378,29 @@
       const start = Math.min(startMs, endMs);
       const end = Math.max(startMs, endMs);
       if (end - start < 1) return null;
+      const stageCode = String(raw.stageCode || raw.stage_code || raw.phaseCode || raw.action || 'TRANSITION_55');
+      const tpl = STAGE_TEMPLATES[stageCode] || null;
       return {
         id: String(raw.id || `label_${String(index + 1).padStart(3, '0')}`),
         startMs: Math.round(start),
         endMs: Math.round(end),
-        action: String(raw.action || 'other'),
+        action: String(raw.action || stageCode || 'other'),
+        stageCode,
+        stageName: String(raw.stageName || raw.stage_name || tpl?.name || stageCode),
+        physicalMeaning: String(raw.physicalMeaning || raw.physical_meaning || tpl?.physicalMeaning || ''),
+        reachCondition: String(raw.reachCondition || raw.reach_condition || tpl?.reachCondition || ''),
+        nextCondition: String(raw.nextCondition || raw.next_condition || tpl?.nextCondition || ''),
+        goal: String(raw.goal || tpl?.goal || ''),
+        requiredIndicators: Array.isArray(raw.requiredIndicators || raw.required_indicators)
+          ? [...(raw.requiredIndicators || raw.required_indicators)].map(String)
+          : [...(tpl?.requiredIndicators || [])],
+        helperIndicators: Array.isArray(raw.helperIndicators || raw.helper_indicators)
+          ? [...(raw.helperIndicators || raw.helper_indicators)].map(String)
+          : [...(tpl?.helperIndicators || [])],
         quality: String(raw.quality || 'normal'),
         errorType: String(raw.errorType || raw.error_type || '').trim(),
         comment: String(raw.comment || '').trim(),
+        sourceVideo: String(raw.sourceVideo || raw.source_video || ''),
         createdAt: Number(raw.createdAt || Date.now()),
         updatedAt: raw.updatedAt ? Number(raw.updatedAt) : undefined
       };
@@ -990,12 +1414,13 @@
       state.editingLabelId = null;
       state.labelStartMs = null;
       state.labelEndMs = null;
-      el.actionSelect.value = 'wedge_turn_left';
+      el.actionSelect.value = 'TRANSITION_55';
       el.qualitySelect.value = 'good';
       el.errorInput.value = '';
       el.commentInput.value = '';
       el.addLabelBtn.textContent = '添加标注';
       el.cancelEditBtn.style.display = 'none';
+      updateStageHelp();
       updateLabelWindowText();
     }
 
@@ -1030,14 +1455,24 @@
         alert('标注窗口太短，请至少选择 0.1 秒以上。');
         return;
       }
+      const tpl = stageTemplate(el.actionSelect.value);
       const label = {
         id: state.editingLabelId || nextLabelId(),
         startMs,
         endMs,
-        action: el.actionSelect.value,
+        action: tpl.code,
+        stageCode: tpl.code,
+        stageName: tpl.name,
+        physicalMeaning: tpl.physicalMeaning,
+        reachCondition: tpl.reachCondition,
+        nextCondition: tpl.nextCondition,
+        goal: tpl.goal,
+        requiredIndicators: [...tpl.requiredIndicators],
+        helperIndicators: [...tpl.helperIndicators],
         quality: el.qualitySelect.value,
         errorType: el.errorInput.value.trim(),
         comment: el.commentInput.value.trim(),
+        sourceVideo: state.videoItems.map(item => item.name).join(', '),
         createdAt: Date.now(),
         updatedAt: state.editingLabelId ? Date.now() : undefined
       };
@@ -1058,12 +1493,14 @@
       state.editingLabelId = label.id;
       state.labelStartMs = label.startMs;
       state.labelEndMs = label.endMs;
-      el.actionSelect.value = [...el.actionSelect.options].some(option => option.value === label.action) ? label.action : 'other';
+      const stageCode = label.stageCode || label.action;
+      el.actionSelect.value = [...el.actionSelect.options].some(option => option.value === stageCode) ? stageCode : 'TRANSITION_55';
       el.qualitySelect.value = [...el.qualitySelect.options].some(option => option.value === label.quality) ? label.quality : 'normal';
       el.errorInput.value = label.errorType || '';
       el.commentInput.value = label.comment || '';
       el.addLabelBtn.textContent = '更新标注';
       el.cancelEditBtn.style.display = '';
+      updateStageHelp();
       updateLabelWindowText();
     }
 
@@ -1103,10 +1540,10 @@
         item.className = 'labelItem';
         item.dataset.labelId = label.id;
         const summary = document.createElement('div');
-        summary.innerHTML = `<strong>${escapeHtml(label.id)}</strong> · ${fmtMs(label.startMs)} → ${fmtMs(label.endMs)} · ${escapeHtml(actionText(label.action))} · ${escapeHtml(qualityText(label.quality))}`;
+        summary.innerHTML = `<strong>${escapeHtml(label.id)}</strong> · ${fmtMs(label.startMs)} → ${fmtMs(label.endMs)} · ${escapeHtml(stageText(label.stageCode || label.action))} · ${escapeHtml(qualityText(label.quality))}`;
         const detail = document.createElement('div');
         detail.className = 'small';
-        detail.textContent = `${label.errorType || '无错误类型'}${label.comment ? ` · ${label.comment}` : ''}`;
+        detail.textContent = `${label.goal || '阶段标注'} · ${label.errorType || '无复核项'}${label.comment ? ` · ${label.comment}` : ''}`;
         const actions = document.createElement('div');
         actions.className = 'labelActions';
         const editButton = document.createElement('button');
@@ -1128,12 +1565,9 @@
         actions.append(editButton, deleteButton);
         item.append(summary, detail, actions);
         item.addEventListener('click', () => {
-          const targetT = label.startMs / 1000;
-          const idx = state.frames.findIndex(frame => frame.t >= targetT);
-          state.index = idx >= 0 ? idx : state.frames.length - 1;
           state.playing = false;
-          updateUI();
-          drawAll();
+          pauseVideos();
+          seekTimelineToMs(label.startMs, true);
         });
         el.labelList.appendChild(item);
       });
@@ -1183,6 +1617,10 @@
     }
 
     async function loadUserFile(file) {
+      if (isVideoFile(file)) {
+        loadVideoFiles([file]);
+        return;
+      }
       const text = await file.text();
       if (/labels?\.json$/i.test(file.name) || looksLikeLabels(text)) {
         await importLabelsText(text, file.name);
@@ -1193,13 +1631,16 @@
 
     function downloadLabels() {
       const payload = {
-        schema: 'ski_imu_labels_v0',
+        schema: 'ski_imu_stage_labels_v1',
         sourceFileName: state.fileName,
+        sourceVideos: state.videoItems.map(item => item.name),
         labelsSourceFile: state.labelsSourceFile,
         timebase: 'sessionElapsedMs',
+        videoOffsetMs: state.videoOffsetMs,
         durationMs: Math.round(state.duration * 1000),
         exportedAt: Date.now(),
         labelCount: state.labels.length,
+        stageDefinitions: STAGE_TEMPLATES,
         labels: state.labels
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1388,7 +1829,21 @@
       chartCtx.fillStyle = '#15222c';
       chartCtx.fillRect(0, 0, w, h);
 
-      if (!state.frames.length) return;
+      if (!state.frames.length) {
+        drawLabelBands(w, h);
+        const totalMs = Math.max(1, state.duration * 1000);
+        const nowMs = currentElapsedMs();
+        const cursorX = clamp((Number.isFinite(nowMs) ? nowMs : 0) / totalMs, 0, 1) * w;
+        chartCtx.strokeStyle = '#ffffff';
+        chartCtx.lineWidth = 1;
+        chartCtx.beginPath();
+        chartCtx.moveTo(cursorX, 0);
+        chartCtx.lineTo(cursorX, h);
+        chartCtx.stroke();
+        chartCtx.fillStyle = 'rgba(255,255,255,0.72)';
+        chartCtx.fillText('视频时间轴', 12, 18);
+        return;
+      }
 
       drawEdgeChangeBands(w, h);
       drawLabelBands(w, h);
@@ -1507,6 +1962,20 @@
         }
         if (state.index >= state.frames.length - 1) {
           state.playing = false;
+          pauseVideos();
+        }
+        updateUI();
+        syncVideosToTimeline(false);
+      } else if (state.playing && state.videoItems.length) {
+        const primary = state.videoItems.find(item => item.video && !item.video.paused)?.video || state.videoItems[0]?.video;
+        if (primary && Number.isFinite(primary.currentTime)) {
+          state.videoOnlyMs = clamp(primary.currentTime * 1000 + state.videoOffsetMs, 0, Math.max(0, state.duration * 1000));
+        } else {
+          state.videoOnlyMs = clamp(state.videoOnlyMs + dt * state.speed * 1000, 0, Math.max(0, state.duration * 1000));
+        }
+        if (state.duration && state.videoOnlyMs >= state.duration * 1000 - 20) {
+          state.playing = false;
+          pauseVideos();
         }
         updateUI();
       }
@@ -1516,18 +1985,23 @@
     }
 
     el.playBtn.addEventListener('click', () => {
-      if (!state.frames.length) return;
+      if (!state.frames.length && !state.videoItems.length) return;
       if (state.index >= state.frames.length - 1) state.index = 0;
       state.playing = !state.playing;
       state.lastClock = 0;
+      if (state.playing) playVideos();
+      else pauseVideos();
       updateUI();
     });
 
     el.resetBtn.addEventListener('click', () => {
       state.index = 0;
+      state.videoOnlyMs = 0;
       state.playing = false;
+      pauseVideos();
       updateUI();
       drawAll();
+      syncVideosToTimeline(true);
     });
 
     el.openRecorderBtn.addEventListener('click', () => {
@@ -1535,18 +2009,41 @@
     });
 
     el.scrub.addEventListener('input', () => {
-      if (!state.frames.length) return;
-      state.index = Math.round((Number(el.scrub.value) / 1000) * (state.frames.length - 1));
+      if (!state.frames.length && !state.duration) return;
+      if (state.frames.length) {
+        state.index = Math.round((Number(el.scrub.value) / 1000) * (state.frames.length - 1));
+      } else {
+        state.videoOnlyMs = (Number(el.scrub.value) / 1000) * state.duration * 1000;
+      }
       state.playing = false;
+      pauseVideos();
       updateUI();
       drawAll();
+      syncVideosToTimeline(true);
     });
 
     el.speedRange.addEventListener('input', () => {
       state.speed = Number(el.speedRange.value);
       el.speedText.textContent = `${state.speed.toFixed(2).replace(/\.00$/, '')}x`;
+      state.videoItems.forEach(item => {
+        if (item.video) item.video.playbackRate = state.speed;
+      });
     });
 
+    el.videoInput.addEventListener('change', () => {
+      const files = el.videoInput.files || [];
+      loadVideoFiles(files);
+      el.videoInput.value = '';
+    });
+
+    el.videoOffsetInput.addEventListener('input', () => {
+      state.videoOffsetMs = Number(el.videoOffsetInput.value || 0);
+      updateDurationFromVideos();
+      updateVideoStatus();
+      syncVideosToTimeline(true);
+    });
+
+    el.actionSelect.addEventListener('change', updateStageHelp);
     el.markStartBtn.addEventListener('click', markLabelStart);
     el.markEndBtn.addEventListener('click', markLabelEnd);
     el.addLabelBtn.addEventListener('click', saveLabel);
@@ -1607,10 +2104,13 @@
     el.dropZone.addEventListener('drop', async event => {
       event.preventDefault();
       el.dropZone.classList.remove('drag');
-      const file = event.dataTransfer.files?.[0];
-      if (!file) return;
+      const files = [...(event.dataTransfer.files || [])];
+      if (!files.length) return;
       try {
-        await loadUserFile(file);
+        const videos = files.filter(isVideoFile);
+        if (videos.length) loadVideoFiles(videos);
+        const dataFile = files.find(file => !isVideoFile(file));
+        if (dataFile) await loadUserFile(dataFile);
       } catch (err) {
         alert('解析文件失败：' + err.message);
       }
@@ -1625,6 +2125,9 @@
     resizeCanvas(pathCanvas, pathCtx);
     resizeCanvas(chartCanvas, chartCtx);
     el.speedText.textContent = `${state.speed.toFixed(1)}x`;
+    updateStageHelp();
+    renderLabels();
+    updateUI();
     requestAnimationFrame(tick);
 
     const initialLoad = IS_ANDROID_APP ? loadLatestLocalLog() : loadDefaultLog();
