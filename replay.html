@@ -33,6 +33,13 @@
 
     input[type="range"] { width: 100%; accent-color: #2563eb; }
     input[type="file"] { width: 100%; color: #42535f; }
+    input[type="file"].hiddenFile {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
     input[type="text"], input[type="number"], select {
       width: 100%;
       border: 1px solid #dce6e9;
@@ -46,20 +53,49 @@
     #app {
       min-height: 100vh;
       display: grid;
-      grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    #topbar {
+      display: grid;
+      grid-template-columns: auto auto auto auto auto minmax(180px, 260px) minmax(150px, 190px) minmax(120px, 150px);
+      gap: 10px;
+      align-items: center;
+      padding: 12px 16px;
+      background: #ffffff;
+      border-bottom: 1px solid #dce6e9;
+    }
+
+    #topbar h1 {
+      margin: 0;
+      white-space: nowrap;
+    }
+
+    #workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
     }
 
     #panel {
-      padding: 18px;
+      padding: 14px;
       background: #ffffff;
-      border-right: 1px solid #dce6e9;
+      border-left: 1px solid #dce6e9;
       overflow-y: auto;
+      min-height: 0;
     }
 
     #stage {
       display: grid;
-      grid-template-rows: minmax(220px, 0.6fr) minmax(360px, 1fr) 240px;
-      min-height: 100vh;
+      grid-template-rows: minmax(420px, 1fr) auto 220px;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    #videoCompare {
+      position: relative;
+      min-height: 0;
+      background: #101820;
     }
 
     h1 {
@@ -80,6 +116,22 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
+    }
+
+    .topRange {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .topRange .row {
+      padding: 0;
+      border: 0;
+      font-size: 12px;
+    }
+
+    #topbar .inlineField {
+      min-width: 120px;
     }
 
     .wide { grid-column: 1 / -1; }
@@ -149,6 +201,28 @@
       font-weight: 700;
     }
 
+    .filePick {
+      display: grid;
+      place-items: center;
+      width: 100%;
+      min-height: 39px;
+      border-radius: 8px;
+      background: #2563eb;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 900;
+      cursor: pointer;
+      text-align: center;
+    }
+
+    .filePick.secondary { background: #415462; }
+
+    #topbar .filePick {
+      min-height: 40px;
+      padding: 0 12px;
+      white-space: nowrap;
+    }
+
     .stageHelp {
       grid-column: 1 / -1;
       border-radius: 8px;
@@ -195,23 +269,82 @@
 
     #labelList {
       display: grid;
-      gap: 6px;
-      max-height: 180px;
+      gap: 8px;
+      max-height: 260px;
       overflow-y: auto;
     }
 
     .labelItem {
+      position: relative;
+      display: grid;
+      gap: 6px;
       border-radius: 8px;
       border: 1px solid #dce6e9;
       background: #f7fbfb;
-      padding: 8px;
+      padding: 9px 9px 9px 13px;
       font-size: 13px;
       line-height: 1.4;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .labelItem::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 5px;
+      background: var(--label-color, #2563eb);
     }
 
     .labelItem.active {
       border-color: #2563eb;
       background: #eff6ff;
+    }
+
+    .labelItem.draft {
+      border-style: dashed;
+      background: #fff7ed;
+    }
+
+    .labelSummary {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .labelSwatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: var(--label-color, #2563eb);
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.9);
+    }
+
+    .labelTitle {
+      min-width: 0;
+      font-weight: 900;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .labelBadge {
+      border-radius: 999px;
+      padding: 2px 7px;
+      background: rgba(22,35,44,0.08);
+      color: #334755;
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .labelMeta {
+      color: #526977;
+      overflow-wrap: anywhere;
     }
 
     .labelActions {
@@ -280,8 +413,8 @@
       gap: 10px;
       padding: 12px;
       background: #101820;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-      min-height: 220px;
+      height: 100%;
+      min-height: 0;
     }
 
     .videoHead {
@@ -296,7 +429,7 @@
 
     #videoGrid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      grid-template-columns: 1fr;
       gap: 10px;
       min-height: 0;
       overflow: auto;
@@ -305,7 +438,7 @@
     .videoTile {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
-      min-height: 168px;
+      min-height: 0;
       border-radius: 8px;
       overflow: hidden;
       background: #0b1117;
@@ -333,9 +466,20 @@
     .videoTile video {
       width: 100%;
       height: 100%;
-      min-height: 130px;
+      min-height: 0;
+      max-height: 100%;
       object-fit: contain;
       background: #05080c;
+    }
+
+    #videoGrid:has(.videoTile:only-child) {
+      align-items: center;
+    }
+
+    #videoGrid:has(.videoTile:only-child) .videoTile {
+      width: 100%;
+      height: min(100%, calc((100vw - 490px) * 0.5625 + 42px));
+      max-height: 100%;
     }
 
     #videoEmpty {
@@ -348,16 +492,129 @@
       font-size: 13px;
     }
 
+    #timelineWrap {
+      display: grid;
+      gap: 9px;
+      padding: 12px 16px 14px;
+      background: #ffffff;
+      border-bottom: 1px solid #dce6e9;
+    }
+
+    .timelineHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: #526977;
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    #timeText {
+      color: #16232c;
+      font-size: 16px;
+      text-align: right;
+    }
+
+    #timelineTrack {
+      position: relative;
+      height: 36px;
+      display: grid;
+      align-items: center;
+    }
+
+    #scrubMarks {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 13px;
+      height: 10px;
+      border-radius: 999px;
+      background: #dce6e9;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    #scrubProgress {
+      position: absolute;
+      left: 0;
+      top: 13px;
+      width: 0%;
+      height: 10px;
+      border-radius: 999px;
+      background: #2563eb;
+      pointer-events: none;
+    }
+
+    .scrubMark {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      min-width: 3px;
+      background: var(--label-color, #2563eb);
+      opacity: 0.86;
+    }
+
+    .scrubMark.draft {
+      opacity: 0.62;
+      background-image: repeating-linear-gradient(
+        45deg,
+        transparent 0,
+        transparent 6px,
+        rgba(255,255,255,0.55) 6px,
+        rgba(255,255,255,0.55) 10px
+      );
+    }
+
+    #scrub {
+      position: relative;
+      z-index: 1;
+      height: 36px;
+      margin: 0;
+      background: transparent;
+    }
+
+    #scrub::-webkit-slider-runnable-track {
+      height: 10px;
+      border-radius: 999px;
+      background: transparent;
+    }
+
+    #scrub::-webkit-slider-thumb {
+      margin-top: -7px;
+    }
+
+    #scrub::-moz-range-track {
+      height: 10px;
+      border-radius: 999px;
+      background: transparent;
+    }
+
     #pathWrap {
       position: relative;
-      min-height: 420px;
+      min-height: 0;
       background: linear-gradient(180deg, #dff0f3, #f7fbfb);
+      border-bottom: 1px solid #dce6e9;
+    }
+
+    #videoCompare #pathWrap {
+      position: absolute;
+      right: 16px;
+      bottom: 16px;
+      z-index: 2;
+      width: clamp(220px, 26%, 320px);
+      height: clamp(160px, 28%, 230px);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.72);
+      border-radius: 8px;
+      box-shadow: 0 12px 28px rgba(0,0,0,0.32);
     }
 
     #chartWrap {
       background: #15222c;
       border-top: 1px solid rgba(255,255,255,0.08);
       padding: 10px;
+      min-height: 0;
     }
 
     #dropZone {
@@ -376,40 +633,96 @@
     }
 
     @media (max-width: 920px) {
-      #app { grid-template-columns: 1fr; }
-      #panel { border-right: 0; border-bottom: 1px solid #dce6e9; }
-      #stage { min-height: 900px; grid-template-rows: 260px 420px 220px; }
+      #topbar {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      #topbar h1,
+      #topbar .topRange,
+      #topbar .inlineField {
+        grid-column: 1 / -1;
+      }
+
+      #workspace {
+        grid-template-columns: 1fr;
+      }
+
+      #stage {
+        min-height: 900px;
+        grid-template-rows: minmax(520px, 1fr) auto 220px;
+      }
+
+      #videoCompare {
+        display: block;
+      }
+
+      #videoCompare #pathWrap {
+        right: 12px;
+        bottom: 12px;
+        width: min(280px, 48vw);
+        height: 180px;
+      }
+
+      #panel {
+        border-left: 0;
+        border-top: 1px solid #dce6e9;
+      }
     }
   </style>
 </head>
 <body>
   <div id="app">
-    <aside id="panel">
+    <header id="topbar">
       <h1>轨迹回放</h1>
-
-      <div class="controls">
-        <button id="playBtn">播放</button>
-        <button id="resetBtn" class="secondary">回到开始</button>
-        <button id="openRecorderBtn" class="secondary wide">实时采集</button>
-        <button id="loadLocalBtn" class="secondary wide">加载本机最新日志</button>
-        <button id="loadDefaultBtn" class="secondary wide">加载默认日志</button>
-        <input id="fileInput" class="wide" type="file" accept=".jsonl,.json,text/plain" />
-        <input id="videoInput" class="wide" type="file" accept="video/*,.mp4,.mov,.m4v,.webm" multiple />
-        <label class="inlineField wide">视频偏移 ms
-          <input id="videoOffsetInput" type="number" step="100" value="0" />
-        </label>
+      <button id="playBtn">播放</button>
+      <button id="resetBtn" class="secondary">回到开始</button>
+      <button id="loadLocalBtn" class="secondary">加载本机最新日志</button>
+      <label class="filePick" for="fileInput">选择日志</label>
+      <input id="fileInput" class="hiddenFile" type="file" accept=".jsonl,.json,text/plain" />
+      <label class="filePick secondary" for="videoInput">选择视频</label>
+      <input id="videoInput" class="hiddenFile" type="file" accept="video/*,.mp4,.mov,.m4v,.webm" multiple />
+      <div class="topRange">
+        <div class="row"><span class="label">播放速度</span><span class="value" id="speedText">1.0x</span></div>
+        <input id="speedRange" type="range" min="0.25" max="4" step="0.25" value="1" />
       </div>
+      <label class="inlineField">视频偏移 ms
+        <input id="videoOffsetInput" type="number" step="100" value="0" />
+      </label>
+    </header>
 
-      <div id="dropZone">
-        可把 JSONL 日志、labels.json 或视频拖到这里。当前 BLE 日志没有 GPS/速度，画面中的滑行路径是用立刃角估算的示意轨迹；下方曲线是原始传感器数据。
-      </div>
+    <main id="workspace">
+      <section id="stage">
+        <section id="videoCompare">
+          <section id="videoWrap">
+            <div class="videoHead">
+              <span>视频</span>
+              <span id="videoStatus">未加载</span>
+            </div>
+            <div id="videoGrid">
+              <div id="videoEmpty">加载视频后显示画面</div>
+            </div>
+          </section>
+          <section id="pathWrap">
+            <canvas id="pathCanvas"></canvas>
+          </section>
+        </section>
+        <section id="timelineWrap">
+          <div class="timelineHeader">
+            <span>进度</span>
+            <span id="timeText">--</span>
+          </div>
+          <div id="timelineTrack">
+            <div id="scrubProgress"></div>
+            <div id="scrubMarks"></div>
+            <input id="scrub" type="range" min="0" max="1000" value="0" />
+          </div>
+        </section>
+        <section id="chartWrap">
+          <canvas id="chartCanvas"></canvas>
+        </section>
+      </section>
 
-      <h2>播放</h2>
-      <div class="row"><span class="label">进度</span><span class="value" id="timeText">--</span></div>
-      <input id="scrub" type="range" min="0" max="1000" value="0" />
-      <div class="row"><span class="label">速度</span><span class="value" id="speedText">1.0x</span></div>
-      <input id="speedRange" type="range" min="0.25" max="4" step="0.25" value="1" />
-
+      <aside id="panel">
       <h2>教练标注</h2>
       <div class="controls">
         <button id="markStartBtn">设为起点</button>
@@ -497,33 +810,23 @@
       <div class="row"><span class="label">左板范围</span><span class="value" id="leftRange">--</span></div>
       <div class="row"><span class="label">右板范围</span><span class="value" id="rightRange">--</span></div>
 
+      <div id="dropZone">
+        可把 JSONL 日志、labels.json 或视频拖到这里。当前 BLE 日志没有 GPS/速度，画面中的滑行路径是用立刃角估算的示意轨迹；下方曲线是原始传感器数据。
+      </div>
+
       <div class="notice">
         如果需要真实地理轨迹，需要额外记录 GPS 或速度。仅靠当前日志无法还原真实位移，这里用立刃角生成的是训练复盘用的动作路径。
       </div>
-    </aside>
-
-    <main id="stage">
-      <section id="videoWrap">
-        <div class="videoHead">
-          <span>视频</span>
-          <span id="videoStatus">未加载</span>
-        </div>
-        <div id="videoGrid">
-          <div id="videoEmpty">加载视频后显示画面</div>
-        </div>
-      </section>
-      <section id="pathWrap">
-        <canvas id="pathCanvas"></canvas>
-      </section>
-      <section id="chartWrap">
-        <canvas id="chartCanvas"></canvas>
-      </section>
+      </aside>
     </main>
   </div>
 
   <script>
-    const DEFAULT_LOG = 'ski_imu_log_1777385783530.jsonl';
     const IS_ANDROID_APP = Boolean(window.SkiAndroid?.isAndroidApp?.());
+    const LABEL_COLORS = [
+      '#2563eb', '#f97316', '#16a34a', '#dc2626', '#7c3aed',
+      '#0891b2', '#db2777', '#65a30d', '#9333ea', '#0f766e'
+    ];
     const STAGE_TEMPLATES = {
       TRANSITION_55: {
         code: 'TRANSITION_55',
@@ -602,14 +905,14 @@
     const el = {
       playBtn: document.getElementById('playBtn'),
       resetBtn: document.getElementById('resetBtn'),
-      openRecorderBtn: document.getElementById('openRecorderBtn'),
       loadLocalBtn: document.getElementById('loadLocalBtn'),
-      loadDefaultBtn: document.getElementById('loadDefaultBtn'),
       fileInput: document.getElementById('fileInput'),
       videoInput: document.getElementById('videoInput'),
       videoOffsetInput: document.getElementById('videoOffsetInput'),
       dropZone: document.getElementById('dropZone'),
       scrub: document.getElementById('scrub'),
+      scrubProgress: document.getElementById('scrubProgress'),
+      scrubMarks: document.getElementById('scrubMarks'),
       speedRange: document.getElementById('speedRange'),
       speedText: document.getElementById('speedText'),
       timeText: document.getElementById('timeText'),
@@ -696,6 +999,27 @@
         '"': '&quot;',
         "'": '&#39;'
       }[ch]));
+    }
+
+    function labelOrdinal(label, labels = state.labels) {
+      const index = labels.findIndex(item => item.id === label.id);
+      return index >= 0 ? index : 0;
+    }
+
+    function labelColor(label, labels = state.labels) {
+      return LABEL_COLORS[labelOrdinal(label, labels) % LABEL_COLORS.length];
+    }
+
+    function hexToRgba(hex, alpha) {
+      const clean = String(hex).replace('#', '');
+      const value = Number.parseInt(clean.length === 3
+        ? clean.split('').map(ch => ch + ch).join('')
+        : clean, 16);
+      if (!Number.isFinite(value)) return `rgba(37, 99, 235, ${alpha})`;
+      const r = (value >> 16) & 255;
+      const g = (value >> 8) & 255;
+      const b = value & 255;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
     function actionText(value) {
@@ -1016,12 +1340,6 @@
       return `${Math.min(...values).toFixed(1)}° ~ ${Math.max(...values).toFixed(1)}°`;
     }
 
-    async function loadDefaultLog() {
-      const response = await fetch(DEFAULT_LOG);
-      if (!response.ok) throw new Error(`无法加载 ${DEFAULT_LOG}`);
-      await loadText(await response.text(), DEFAULT_LOG);
-    }
-
     async function loadLatestLocalLog() {
       if (!IS_ANDROID_APP) throw new Error('只在 Android 客户端中可用');
       const names = JSON.parse(window.SkiAndroid.listLogs() || '[]');
@@ -1083,6 +1401,7 @@
         state.duration = videoDurationMs / 1000;
         el.durationText.textContent = `${state.duration.toFixed(1)} s`;
       }
+      renderScrubMarks();
     }
 
     function updateVideoStatus() {
@@ -1261,6 +1580,7 @@
           ? `${(safeNowMs / 1000).toFixed(2)} / ${state.duration.toFixed(2)} s`
           : '--';
         el.scrub.value = totalMs > 0 ? Math.round((safeNowMs / totalMs) * 1000) : 0;
+        updateScrubProgress();
         el.playBtn.textContent = state.playing ? '暂停' : '播放';
         highlightLabels();
         return;
@@ -1275,6 +1595,7 @@
 
       el.timeText.textContent = `${frame.t.toFixed(2)} / ${state.duration.toFixed(2)} s`;
       el.scrub.value = state.frames.length > 1 ? Math.round((state.index / (state.frames.length - 1)) * 1000) : 0;
+      updateScrubProgress();
       el.leftEdge.textContent = fmtDeg(left);
       el.rightEdge.textContent = fmtDeg(right);
       el.leftPhase.textContent = phaseToCN(phaseOf(frame, 'L'));
@@ -1410,6 +1731,68 @@
       state.labels.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs || a.id.localeCompare(b.id));
     }
 
+    function isEditingExistingLabel() {
+      return Boolean(state.editingLabelId && el.addLabelBtn.textContent === '更新标注');
+    }
+
+    function currentDraftLabel() {
+      if (!Number.isFinite(state.labelStartMs) || !Number.isFinite(state.labelEndMs)) return null;
+      const startMs = Math.min(state.labelStartMs, state.labelEndMs);
+      const endMs = Math.max(state.labelStartMs, state.labelEndMs);
+      if (endMs - startMs < 1) return null;
+      const tpl = stageTemplate(el.actionSelect.value);
+      return {
+        id: isEditingExistingLabel() ? state.editingLabelId : nextLabelId(),
+        startMs,
+        endMs,
+        action: tpl.code,
+        stageCode: tpl.code,
+        stageName: tpl.name,
+        goal: tpl.goal,
+        quality: el.qualitySelect.value,
+        errorType: el.errorInput.value.trim(),
+        comment: el.commentInput.value.trim(),
+        sourceVideo: state.videoItems.map(item => item.name).join(', '),
+        draft: true
+      };
+    }
+
+    function displayLabels() {
+      const draft = currentDraftLabel();
+      if (!draft) return [...state.labels];
+      if (!isEditingExistingLabel()) return [...state.labels, draft];
+      return state.labels.map(label => label.id === state.editingLabelId ? draft : label);
+    }
+
+    function displayLabelOrdinal(label, labels = displayLabels()) {
+      const index = labels.findIndex(item => item.id === label.id);
+      return index >= 0 ? index : 0;
+    }
+
+    function renderScrubMarks() {
+      el.scrubMarks.innerHTML = '';
+      const totalMs = Math.max(0, state.duration * 1000);
+      const labels = displayLabels().sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs || a.id.localeCompare(b.id));
+      if (!labels.length || !totalMs) return;
+
+      for (const label of labels) {
+        const startPct = clamp(label.startMs / totalMs, 0, 1) * 100;
+        const endPct = clamp(label.endMs / totalMs, 0, 1) * 100;
+        const mark = document.createElement('div');
+        mark.className = label.draft ? 'scrubMark draft' : 'scrubMark';
+        mark.style.left = `${startPct}%`;
+        mark.style.width = `${Math.max(0.4, endPct - startPct)}%`;
+        mark.style.setProperty('--label-color', labelColor(label, labels));
+        mark.title = `${label.draft ? '待添加 · ' : ''}第 ${displayLabelOrdinal(label, labels) + 1} 段 · ${stageText(label.stageCode || label.action)} · ${fmtMs(label.startMs)} → ${fmtMs(label.endMs)}`;
+        el.scrubMarks.appendChild(mark);
+      }
+    }
+
+    function updateScrubProgress() {
+      const value = clamp(Number(el.scrub.value || 0) / 1000, 0, 1) * 100;
+      el.scrubProgress.style.width = `${value}%`;
+    }
+
     function resetLabelEditor() {
       state.editingLabelId = null;
       state.labelStartMs = null;
@@ -1425,16 +1808,18 @@
     }
 
     function markLabelStart() {
-      if (!state.frames.length) return;
+      if (!state.frames.length && !state.duration) return;
       state.labelStartMs = currentElapsedMs();
       if (Number.isFinite(state.labelEndMs) && state.labelEndMs < state.labelStartMs) {
         state.labelEndMs = state.labelStartMs;
       }
       updateLabelWindowText();
+      renderLabels();
+      drawAll();
     }
 
     function markLabelEnd() {
-      if (!state.frames.length) return;
+      if (!state.frames.length && !state.duration) return;
       state.labelEndMs = currentElapsedMs();
       if (Number.isFinite(state.labelStartMs) && state.labelEndMs < state.labelStartMs) {
         const tmp = state.labelStartMs;
@@ -1442,6 +1827,8 @@
         state.labelEndMs = tmp;
       }
       updateLabelWindowText();
+      renderLabels();
+      drawAll();
     }
 
     function saveLabel() {
@@ -1456,8 +1843,9 @@
         return;
       }
       const tpl = stageTemplate(el.actionSelect.value);
+      const isEdit = isEditingExistingLabel();
       const label = {
-        id: state.editingLabelId || nextLabelId(),
+        id: isEdit ? state.editingLabelId : nextLabelId(),
         startMs,
         endMs,
         action: tpl.code,
@@ -1474,10 +1862,12 @@
         comment: el.commentInput.value.trim(),
         sourceVideo: state.videoItems.map(item => item.name).join(', '),
         createdAt: Date.now(),
-        updatedAt: state.editingLabelId ? Date.now() : undefined
+        updatedAt: isEdit ? Date.now() : undefined
       };
-      const existingIndex = state.labels.findIndex(item => item.id === state.editingLabelId);
-      if (existingIndex >= 0) {
+      const existingIndex = isEdit
+        ? state.labels.findIndex(item => item.id === state.editingLabelId)
+        : -1;
+      if (isEdit && existingIndex >= 0) {
         label.createdAt = state.labels[existingIndex].createdAt || label.createdAt;
         state.labels.splice(existingIndex, 1, label);
       } else {
@@ -1526,7 +1916,9 @@
 
     function renderLabels() {
       el.labelList.innerHTML = '';
-      if (!state.labels.length) {
+      const labels = displayLabels().sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs || a.id.localeCompare(b.id));
+      if (!labels.length) {
+        renderScrubMarks();
         const empty = document.createElement('div');
         empty.className = 'labelItem';
         empty.textContent = '还没有标注。播放或拖动时间轴后，设置起点/终点并添加动作标签。';
@@ -1535,35 +1927,53 @@
       }
 
       sortLabels();
-      state.labels.forEach(label => {
+      renderScrubMarks();
+      labels.forEach(label => {
         const item = document.createElement('div');
-        item.className = 'labelItem';
+        item.className = label.draft ? 'labelItem draft' : 'labelItem';
         item.dataset.labelId = label.id;
+        item.style.setProperty('--label-color', labelColor(label, labels));
         const summary = document.createElement('div');
-        summary.innerHTML = `<strong>${escapeHtml(label.id)}</strong> · ${fmtMs(label.startMs)} → ${fmtMs(label.endMs)} · ${escapeHtml(stageText(label.stageCode || label.action))} · ${escapeHtml(qualityText(label.quality))}`;
+        summary.className = 'labelSummary';
+        const swatch = document.createElement('span');
+        swatch.className = 'labelSwatch';
+        const title = document.createElement('span');
+        title.className = 'labelTitle';
+        title.textContent = `${label.draft ? '待添加 · ' : ''}第 ${labelOrdinal(label, labels) + 1} 段 · ${stageText(label.stageCode || label.action)}`;
+        const badge = document.createElement('span');
+        badge.className = 'labelBadge';
+        badge.textContent = qualityText(label.quality);
+        summary.append(swatch, title, badge);
+        const meta = document.createElement('div');
+        meta.className = 'labelMeta';
+        meta.textContent = `${label.id} · ${fmtMs(label.startMs)} → ${fmtMs(label.endMs)}`;
         const detail = document.createElement('div');
         detail.className = 'small';
-        detail.textContent = `${label.goal || '阶段标注'} · ${label.errorType || '无复核项'}${label.comment ? ` · ${label.comment}` : ''}`;
+        detail.textContent = `${label.goal || '阶段标注'} · ${label.errorType || '无复核项'}${label.comment ? ` · ${label.comment}` : ''}${label.sourceVideo ? ` · ${label.sourceVideo}` : ''}`;
         const actions = document.createElement('div');
         actions.className = 'labelActions';
         const editButton = document.createElement('button');
         editButton.type = 'button';
         editButton.className = 'secondary';
         editButton.textContent = '编辑';
+        editButton.disabled = Boolean(label.draft);
         editButton.addEventListener('click', event => {
           event.stopPropagation();
+          if (label.draft) return;
           editLabel(label);
         });
         const deleteButton = document.createElement('button');
         deleteButton.type = 'button';
         deleteButton.className = 'danger';
         deleteButton.textContent = '删除';
+        deleteButton.disabled = Boolean(label.draft);
         deleteButton.addEventListener('click', event => {
           event.stopPropagation();
+          if (label.draft) return;
           deleteLabel(label.id);
         });
         actions.append(editButton, deleteButton);
-        item.append(summary, detail, actions);
+        item.append(summary, meta, detail, actions);
         item.addEventListener('click', () => {
           state.playing = false;
           pauseVideos();
@@ -1722,7 +2132,6 @@
       pathCtx.stroke();
 
       drawEdgeChangePathSegments(bounds, w, h);
-      drawEdgeChangeMarkers(bounds, w, h);
 
       pathCtx.strokeStyle = '#2563eb';
       pathCtx.beginPath();
@@ -1733,6 +2142,9 @@
       }
       pathCtx.stroke();
 
+      drawLabelPathSegments(bounds, w, h);
+      drawEdgeChangeMarkers(bounds, w, h);
+
       drawSkis(current, bounds, w, h);
 
       pathCtx.fillStyle = '#16232c';
@@ -1740,7 +2152,14 @@
       pathCtx.fillText('估算滑行轨迹', 22, 32);
       pathCtx.font = '13px Arial';
       pathCtx.fillStyle = '#647783';
-      pathCtx.fillText('橙色区间为换刃过程：释放旧刃 → 过平板 → 建立新刃', 22, 54);
+      pathCtx.fillText('彩色粗线为人工标注窗口，橙色底线为换刃过程', 22, 54);
+    }
+
+    function frameIndexAtMs(ms) {
+      if (!state.frames.length) return -1;
+      const targetT = ms / 1000;
+      const index = state.frames.findIndex(frame => frame.t >= targetT);
+      return index >= 0 ? index : state.frames.length - 1;
     }
 
     function drawEdgeChangePathSegments(bounds, w, h) {
@@ -1757,6 +2176,49 @@
           else pathCtx.lineTo(s.x, s.y);
         }
         pathCtx.stroke();
+      }
+
+      pathCtx.restore();
+    }
+
+    function drawLabelPathSegments(bounds, w, h) {
+      const labels = displayLabels();
+      if (!labels.length || !state.path.length || !state.frames.length) return;
+      pathCtx.save();
+      pathCtx.lineCap = 'round';
+      pathCtx.lineJoin = 'round';
+
+      for (const label of labels) {
+        const start = clamp(frameIndexAtMs(label.startMs), 0, state.path.length - 1);
+        const end = clamp(frameIndexAtMs(label.endMs), 0, state.path.length - 1);
+        if (start < 0 || end < 0) continue;
+        pathCtx.lineWidth = 11;
+        pathCtx.strokeStyle = hexToRgba(labelColor(label, labels), label.draft ? 0.48 : 0.78);
+        pathCtx.beginPath();
+        for (let i = start; i <= end; i++) {
+          const s = worldToScreen(state.path[i], bounds, w, h);
+          if (i === start) pathCtx.moveTo(s.x, s.y);
+          else pathCtx.lineTo(s.x, s.y);
+        }
+        pathCtx.stroke();
+
+        const mid = Math.round((start + end) / 2);
+        const p = state.path[mid];
+        if (p) {
+          const s = worldToScreen(p, bounds, w, h);
+          pathCtx.fillStyle = labelColor(label, labels);
+          pathCtx.strokeStyle = '#ffffff';
+          pathCtx.lineWidth = 2;
+          pathCtx.beginPath();
+          pathCtx.arc(s.x, s.y, 12, 0, Math.PI * 2);
+          pathCtx.fill();
+          pathCtx.stroke();
+          pathCtx.fillStyle = '#ffffff';
+          pathCtx.font = '700 11px Arial';
+          pathCtx.textAlign = 'center';
+          pathCtx.textBaseline = 'middle';
+          pathCtx.fillText(String(labelOrdinal(label, labels) + 1), s.x, s.y + 0.5);
+        }
       }
 
       pathCtx.restore();
@@ -1887,17 +2349,19 @@
     }
 
     function drawLabelBands(w, h) {
-      if (!state.labels.length || !state.duration) return;
+      const labels = displayLabels();
+      if (!labels.length || !state.duration) return;
       chartCtx.save();
-      for (const label of state.labels) {
+      for (const label of labels) {
         const x1 = clamp(label.startMs / Math.max(1, state.duration * 1000), 0, 1) * w;
         const x2 = clamp(label.endMs / Math.max(1, state.duration * 1000), 0, 1) * w;
-        chartCtx.fillStyle = label.quality === 'bad'
-          ? 'rgba(239, 68, 68, 0.20)'
-          : label.quality === 'good'
-            ? 'rgba(34, 197, 94, 0.16)'
-            : 'rgba(37, 99, 235, 0.16)';
+        chartCtx.fillStyle = hexToRgba(labelColor(label, labels), label.draft ? 0.16 : 0.24);
         chartCtx.fillRect(x1, 0, Math.max(2, x2 - x1), h);
+        chartCtx.fillStyle = labelColor(label, labels);
+        chartCtx.fillRect(x1, 0, Math.max(2, x2 - x1), 5);
+        chartCtx.fillStyle = 'rgba(255,255,255,0.90)';
+        chartCtx.font = '700 11px Arial';
+        chartCtx.fillText(String(labelOrdinal(label, labels) + 1), x1 + 5, 18);
       }
       chartCtx.restore();
     }
@@ -2004,10 +2468,6 @@
       syncVideosToTimeline(true);
     });
 
-    el.openRecorderBtn.addEventListener('click', () => {
-      window.location.href = 'index.html';
-    });
-
     el.scrub.addEventListener('input', () => {
       if (!state.frames.length && !state.duration) return;
       if (state.frames.length) {
@@ -2043,11 +2503,20 @@
       syncVideosToTimeline(true);
     });
 
-    el.actionSelect.addEventListener('change', updateStageHelp);
+    el.actionSelect.addEventListener('change', () => {
+      updateStageHelp();
+      renderLabels();
+      drawAll();
+    });
+    el.qualitySelect.addEventListener('change', renderLabels);
     el.markStartBtn.addEventListener('click', markLabelStart);
     el.markEndBtn.addEventListener('click', markLabelEnd);
     el.addLabelBtn.addEventListener('click', saveLabel);
-    el.cancelEditBtn.addEventListener('click', resetLabelEditor);
+    el.cancelEditBtn.addEventListener('click', () => {
+      resetLabelEditor();
+      renderLabels();
+      drawAll();
+    });
     el.importLabelsBtn.addEventListener('click', () => el.labelFileInput.click());
     el.downloadLabelsBtn.addEventListener('click', downloadLabels);
     el.clearLabelsBtn.addEventListener('click', clearLabels);
@@ -2061,14 +2530,6 @@
         alert('导入标注失败：' + err.message);
       } finally {
         el.labelFileInput.value = '';
-      }
-    });
-
-    el.loadDefaultBtn.addEventListener('click', async () => {
-      try {
-        await loadDefaultLog();
-      } catch (err) {
-        alert('加载默认日志失败：' + err.message);
       }
     });
 
@@ -2129,11 +2590,13 @@
     renderLabels();
     updateUI();
     requestAnimationFrame(tick);
-
-    const initialLoad = IS_ANDROID_APP ? loadLatestLocalLog() : loadDefaultLog();
-    initialLoad.catch(() => {
+    if (IS_ANDROID_APP) {
+      loadLatestLocalLog().catch(() => {
+        drawAll();
+      });
+    } else {
       drawAll();
-    });
+    }
   </script>
 </body>
 </html>
